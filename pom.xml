@@ -21,6 +21,10 @@
     <modules>
         <module>domain/model</module>
         <module>domain/usecase</module>
+        <module>infrastructure/helpers/command-messages</module>
+        <module>infrastructure/driven-adapters/dynamodb-repository</module>
+        <module>infrastructure/driven-adapters/sqs-publisher</module>
+        <module>infrastructure/driven-adapters/payment-simulator</module>
     </modules>
 
     <properties>
