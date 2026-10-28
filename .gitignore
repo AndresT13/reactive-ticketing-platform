@@ -73,6 +73,7 @@ terraform.rc
 # Real variable files may contain account-specific values; examples are versioned.
 *.auto.tfvars
 secrets.tfvars
+terraform.tfvars
 
 # ---------- Test & coverage reports ----------
 coverage/
