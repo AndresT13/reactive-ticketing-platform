@@ -1,0 +1,80 @@
+# ---------- Build output ----------
+target/
+**/target/
+*.class
+*.jar
+!**/src/main/resources/**/*.jar
+*.war
+*.log
+hs_err_pid*
+replay_pid*
+
+# ---------- Maven ----------
+.mvn/wrapper/maven-wrapper.jar
+.flattened-pom.xml
+dependency-reduced-pom.xml
+release.properties
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+
+# ---------- IDEs ----------
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.vscode/
+!.vscode/extensions.json
+.project
+.classpath
+.settings/
+.factorypath
+bin/
+.apt_generated/
+.sts4-cache/
+nbproject/
+.nb-gradle/
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Secrets & local environment ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+credentials
+.aws/
+
+# ---------- Docker / LocalStack ----------
+.localstack/
+volume/
+docker-data/
+
+# ---------- Terraform ----------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Real variable files may contain account-specific values; examples are versioned.
+*.auto.tfvars
+secrets.tfvars
+
+# ---------- Test & coverage reports ----------
+coverage/
+jacoco.exec
+*.exec
