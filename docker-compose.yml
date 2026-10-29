@@ -10,14 +10,7 @@ x-app: &app
   image: reactive-ticketing-platform:local
   restart: unless-stopped
   depends_on:
-    elasticmq:
-    # SQS-compatible alternative that needs no account token (the test allows "any other solution").
-    image: softwaremill/elasticmq-native:1.6.11
-    profiles: ["elasticmq"]
-    ports:
-      - "9324:9324"
-
-  aws-init:
+    aws-init:
       condition: service_completed_successfully
   environment: &app-env
     AWS_REGION: us-east-1
