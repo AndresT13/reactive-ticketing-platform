@@ -25,6 +25,10 @@
         <module>infrastructure/driven-adapters/dynamodb-repository</module>
         <module>infrastructure/driven-adapters/sqs-publisher</module>
         <module>infrastructure/driven-adapters/payment-simulator</module>
+        <module>infrastructure/entry-points/reactive-web</module>
+        <module>infrastructure/entry-points/sqs-listener</module>
+        <module>infrastructure/entry-points/scheduler</module>
+        <module>applications/app-service</module>
     </modules>
 
     <properties>

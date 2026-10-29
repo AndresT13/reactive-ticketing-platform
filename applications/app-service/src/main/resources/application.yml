@@ -1,0 +1,80 @@
+# All values can be overridden with environment variables (relaxed binding),
+# e.g. ticketing.roles.worker -> TICKETING_ROLES_WORKER.
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: reactive-ticketing-platform
+  main:
+    banner-mode: off
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    co.ticketing: INFO
+
+ticketing:
+  roles:
+    api: true
+    worker: true
+  aws:
+    region: ${AWS_REGION:us-east-1}
+    dynamodb-endpoint: ${TICKETING_AWS_DYNAMODB_ENDPOINT:}
+    sqs-endpoint: ${TICKETING_AWS_SQS_ENDPOINT:}
+    max-concurrency: 256
+    api-call-timeout: 3s
+    api-call-attempt-timeout: 1s
+  tables:
+    events: ticketing-events
+    inventory: ticketing-inventory
+    orders: ticketing-orders
+    tickets: ticketing-tickets
+    audit: ticketing-audit
+    idempotency: ticketing-idempotency-keys
+    guards: ticketing-order-guards
+  queues:
+    reservation-requests-url: ${TICKETING_QUEUES_RESERVATION_REQUESTS_URL:http://localhost:4566/000000000000/ticketing-reservation-requests}
+    payment-requests-url: ${TICKETING_QUEUES_PAYMENT_REQUESTS_URL:http://localhost:4566/000000000000/ticketing-payment-requests}
+    publish-timeout: 2s
+  orders:
+    reservation-ttl: 10m
+    payment-timeout: 5m
+    pending-redispatch-after: 2m
+    deadline-buckets: 8
+    idempotency-ttl: 24h
+    sweep-batch-size: 100
+  listener:
+    max-messages: 10
+    wait-time-seconds: 20
+    concurrency: 32
+    processing-timeout: 20s
+    error-backoff: 1s
+  scheduler:
+    initial-delay: 10s
+    interval: 15s
+  payment:
+    simulated-latency: 200ms
+  web:
+    availability-cache-ttl: 1s
+    stream-interval: 1s
+    stream-max-duration: 30m
+    rate-limit:
+      capacity: 20
+      refill-per-second: 5

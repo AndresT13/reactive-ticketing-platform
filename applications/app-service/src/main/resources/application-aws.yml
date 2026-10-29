@@ -1,0 +1,7 @@
+# Profile used in AWS (ECS Fargate). Tokens are issued by Amazon Cognito and validated with its JWKS.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${TICKETING_JWT_ISSUER_URI}
