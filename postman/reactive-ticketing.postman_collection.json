@@ -250,33 +250,6 @@
           ]
         },
         {
-          "name": "Availability stream (SSE)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "text/event-stream"
-              }
-            ],
-            "description": "Server-Sent Events; Postman shows the events as they arrive. Cancel the request to stop.",
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability/stream",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "events",
-                "{{eventId}}",
-                "availability",
-                "stream"
-              ]
-            }
-          }
-        },
-        {
           "name": "Issue complimentary tickets",
           "request": {
             "method": "POST",
@@ -889,6 +862,39 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "5. Streaming (manual, not run in CI)",
+      "description": "Server-Sent Events stay open until cancelled; run them manually.",
+      "item": [
+        {
+          "name": "Availability stream (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "description": "Server-Sent Events; Postman shows the events as they arrive. Cancel the request to stop.",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events/{{eventId}}/availability/stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "events",
+                "{{eventId}}",
+                "availability",
+                "stream"
+              ]
+            }
+          }
         }
       ]
     }

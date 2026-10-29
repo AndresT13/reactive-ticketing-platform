@@ -102,6 +102,7 @@ jobs:
     name: Smoke test (docker compose + Postman/Newman)
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Start the stack
@@ -113,7 +114,9 @@ jobs:
         run: |
           secret=$(grep TICKETING_SECURITY_LOCAL_JWT_SECRET .env | cut -d= -f2)
           npx --yes newman@6 run postman/reactive-ticketing.postman_collection.json \
-            --env-var "jwtSecret=$secret" --delay-request 300
+            --env-var "jwtSecret=$secret" --delay-request 300 --timeout-request 20000 \
+            --folder "0. Health" --folder "1. Events (admin)" --folder "2. Purchase flow" \
+            --folder "3. Cancellation" --folder "4. Negative & security cases"
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color

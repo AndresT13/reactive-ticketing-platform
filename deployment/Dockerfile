@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q -DskipTests package \
 
 # ---------- Runtime stage ----------
 FROM eclipse-temurin:25-jre
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app
