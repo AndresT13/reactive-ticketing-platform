@@ -1616,7 +1616,7 @@ Este flujo corresponde al nivel 2 a 3 de **OWASP DSOMM** [D5] en las dimensiones
 | **Integración** (perfil `it`, opcional) | Flujo real contra DynamoDB Local y LocalStack | Testcontainers | De la orden a `RESERVED`, luego a `SOLD`, y el vencimiento |
 | **Carga** (fuera del CI) | QAS-01, QAS-03 y QAS-06 | k6 o Gatling | Rampa hasta 2.000 req/s |
 
-**Quality gate:** JaCoCo con la regla `LINE` y `BRANCH ≥ 0.90` agregada, que **falla el build** si no se cumple. Solo se excluyen la clase `main`, las clases `@Configuration` de *wiring* y los DTOs sin lógica. Las exclusiones se declaran de forma explícita y se justifican en el README.
+**Quality gate:** JaCoCo con la regla `LINE ≥ 0.90` por módulo, que **falla el build** si no se cumple. Se aplica a los 10 módulos con lógica; `app-service` (clase `main` y clases `@Configuration` de *wiring*) reporta su cobertura sin bloquear el build y se valida con la prueba de contexto de Spring Boot y ArchUnit. La excepción está declarada en su `pom.xml` y justificada en el README.
 
 ---
 
@@ -1649,9 +1649,9 @@ Formato Nygard: contexto, decisión, alternativas, consecuencias y trazabilidad.
 - **Contexto:** hay picos de miles de compras por segundo y procesamiento pesado (validar, reservar, pagar). La restricción es no proponer un monolito acoplado si el dominio exige escalar partes por separado. Hay un solo *bounded context* y un equipo pequeño.
 - **Decisión:** arquitectura orientada a eventos con **topología mediador** (el agregado `Order` orquesta), Clean Architecture y hexagonal por dentro, y **una imagen desplegada en dos roles** (`api` y `worker`) como servicios ECS separados que escalan por señales distintas. No se usan Virtual Threads en la ruta de petición: WebFlux ya es no bloqueante.
 - **Alternativas:**
-  1. Monolito síncrono con Spring MVC y Virtual Threads. Es simple, pero no amortigua picos y deja el escalado acoplado.
-  2. Microservicios por subdominio (Catalog, Inventory, Ordering) con sagas distribuidas. Agrega latencia de red, consistencia eventual entre servicios y costo operativo injustificado para un solo *bounded context*. M13 advierte que la granularidad es "uno de los desafíos más grandes".
-  3. Topología **broker** pura (coreografía). Se descartó porque el proceso tiene pasos dependientes (reservar → confirmar → pagar) y se beneficia de un punto central de control [M11].
+    1. Monolito síncrono con Spring MVC y Virtual Threads. Es simple, pero no amortigua picos y deja el escalado acoplado.
+    2. Microservicios por subdominio (Catalog, Inventory, Ordering) con sagas distribuidas. Agrega latencia de red, consistencia eventual entre servicios y costo operativo injustificado para un solo *bounded context*. M13 advierte que la granularidad es "uno de los desafíos más grandes".
+    3. Topología **broker** pura (coreografía). Se descartó porque el proceso tiene pasos dependientes (reservar → confirmar → pagar) y se beneficia de un punto central de control [M11].
 - **Consecuencias:** **(+)** escalado independiente, aislamiento de fallas (*bulkhead*) y simplicidad operativa. **(−)** un cambio de código despliega ambos roles; los módulos internos quedan listos para separarse si aparecen equipos o contextos distintos.
 - **Trazabilidad:** [M7] estilos, [M11] mediador vs. broker, [M13] granularidad, [M15][M21] hexagonal, [M4] Ley de Conway.
 
@@ -1774,10 +1774,10 @@ Formato Nygard: contexto, decisión, alternativas, consecuencias y trazabilidad.
 - **Contexto:** el proceso mezcla pasos síncronos (admitir, confirmar, cancelar) y asíncronos (reservar, pagar, liberar). Sin un punto central, el flujo queda disperso y es difícil de razonar.
 - **Decisión:** el flujo se define **en un solo lugar**: la tabla de transiciones de `OrderStatus` (qué estado puede seguir a cuál) y los métodos del agregado `Order` (qué ocurre en cada transición: movimiento de inventario, vencimientos, auditoría). Esto es un **Process Manager** / **Saga orquestada**: cada paso declara su compensación (vencer o rechazar libera el inventario). Los casos de uso son los manejadores de cada paso y los adaptadores de entrada solo traducen su estímulo (HTTP, mensaje SQS, *tick* del *scheduler*). Si el paso es síncrono o asíncrono lo decide el adaptador, no el dominio.
 - **Alternativas:**
-  1. Orquestación implícita repartida en los casos de uso. Funciona, pero el flujo completo no se ve en ningún lugar.
-  2. **AWS Step Functions** (pasos síncronos, `waitForTaskToken` para el pago, estado `Wait` para el vencimiento, reintentos y `Catch` administrados). Se descarta para el camino crítico: cada orden sería una ejecución con 5 a 8 transiciones, con costo por transición y cuotas de inicio que habría que ampliar en una apertura masiva; los *Express Workflows* duran máximo 5 minutos y no alcanzan para la reserva de 10; además, el enunciado pide cola + consumidor + proceso periódico. **Es la evolución recomendada para el tramo posterior a la reserva** (confirmar, pagar, vender), que tiene menos volumen y más pasos de negocio.
-  3. **Apache Camel** (rutas EIP). Agrega un segundo modelo de programación que compite con Reactor, saca la lógica del proceso de la capa de casos de uso y complica la meta de cobertura. Su vocabulario EIP sí se usa: *Process Manager*, *Command Message*, *Idempotent Receiver*, *Dead Letter Channel*, *Competing Consumers*, *Polling Consumer*.
-  4. Temporal o Camunda (ejecución durable). Muy adecuados, pero requieren operar un servidor adicional.
+    1. Orquestación implícita repartida en los casos de uso. Funciona, pero el flujo completo no se ve en ningún lugar.
+    2. **AWS Step Functions** (pasos síncronos, `waitForTaskToken` para el pago, estado `Wait` para el vencimiento, reintentos y `Catch` administrados). Se descarta para el camino crítico: cada orden sería una ejecución con 5 a 8 transiciones, con costo por transición y cuotas de inicio que habría que ampliar en una apertura masiva; los *Express Workflows* duran máximo 5 minutos y no alcanzan para la reserva de 10; además, el enunciado pide cola + consumidor + proceso periódico. **Es la evolución recomendada para el tramo posterior a la reserva** (confirmar, pagar, vender), que tiene menos volumen y más pasos de negocio.
+    3. **Apache Camel** (rutas EIP). Agrega un segundo modelo de programación que compite con Reactor, saca la lógica del proceso de la capa de casos de uso y complica la meta de cobertura. Su vocabulario EIP sí se usa: *Process Manager*, *Command Message*, *Idempotent Receiver*, *Dead Letter Channel*, *Competing Consumers*, *Polling Consumer*.
+    4. Temporal o Camunda (ejecución durable). Muy adecuados, pero requieren operar un servidor adicional.
 - **Consecuencias:** **(+)** el flujo es legible y verificable con pruebas unitarias del dominio; no hay infraestructura extra; la decisión síncrono/asíncrono queda en los adaptadores (sección 7.0). **(−)** no hay historial visual de cada ejecución; se compensa con la tabla `ticket-audit` y las trazas distribuidas.
 - **Trazabilidad:** [M11] topología mediador, [M13][M19] Saga, [M15][M21] hexagonal, [M5] patrón *State*.
 

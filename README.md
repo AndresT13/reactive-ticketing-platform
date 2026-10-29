@@ -22,7 +22,8 @@ La documentación completa de arquitectura (atributos de calidad, modelo C4, DDD
 10. [Decisiones arquitectónicas](#10-decisiones-arquitectónicas)
 11. [Pruebas y cobertura](#11-pruebas-y-cobertura)
 12. [Infraestructura en AWS (Terraform)](#12-infraestructura-en-aws-terraform)
-13. [Limitaciones y mejoras](#13-limitaciones-y-mejoras)
+13. [CI/CD](#13-cicd)
+14. [Limitaciones y mejoras](#14-limitaciones-y-mejoras)
 
 ---
 
@@ -86,6 +87,7 @@ reactive-ticketing-platform/
 │       └── scheduler/         # Liberación de reservas vencidas
 ├── applications/
 │   └── app-service/           # Arranque, configuración y wiring de beans
+├── .github/workflows/ci.yml    # Build + cobertura, gitleaks, imagen + Trivy, Terraform, smoke test con Newman
 ├── deployment/                # Dockerfile y script de inicialización de tablas y colas
 ├── infra/terraform/           # Infraestructura AWS como código
 ├── postman/                   # Colección de solicitudes
@@ -137,10 +139,18 @@ docker compose up --build
 | Servicio | Puerto | Descripción |
 |---|---|---|
 | `dynamodb-local` | 8000 | DynamoDB Local |
-| `localstack` | 4566 | SQS (LocalStack) |
+| `localstack` | 4566 | SQS (LocalStack), perfil `localstack` (por defecto en `.env`) |
+| `elasticmq` | 9324 | Alternativa SQS sin token de cuenta, perfil `elasticmq` |
 | `aws-init` | — | Crea las tablas, índices, colas y DLQ, y termina |
 | `ticketing-api` | **8080** | API REST (rol `api`) |
 | `ticketing-worker` | 8081 | Consumidores SQS y *scheduler* (rol `worker`); solo expone *health* |
+
+Si tu versión de LocalStack pide token de cuenta, usa ElasticMQ (compatible con la API de SQS) cambiando en `.env`:
+
+```dotenv
+COMPOSE_PROFILES=elasticmq
+SQS_HOST=http://elasticmq:9324
+```
 
 Verificar que está arriba:
 
@@ -172,7 +182,15 @@ export BUYER_TOKEN=$(./scripts/generate-token.sh customer-1 "ticketing:purchase"
 | `ticketing:admin` | Crear eventos y emitir cortesías |
 | *(sin token)* | Consultar disponibilidad (`/availability` y `/availability/stream`) |
 
-El `customerId` siempre se toma del claim `sub` del token, nunca del cuerpo de la petición.
+El `customerId` siempre se toma del claim `sub` del token, nunca del cuerpo de la petición. Cognito emite los *scopes* como `ticketing/purchase`; la API los normaliza a `ticketing:purchase`, así que el mismo código sirve en local y en AWS.
+
+### Colección de Postman
+
+Importa `postman/reactive-ticketing.postman_collection.json` y asigna a la variable de colección `jwtSecret` el mismo valor de `TICKETING_SECURITY_LOCAL_JWT_SECRET`. Un *pre-request script* firma el JWT en cada petición, así que no hay que copiar tokens. Las carpetas se ejecutan en orden con el *Collection Runner*: evento → compra → cancelación → casos negativos (falta de `Idempotency-Key`, repetición de la misma llave, validación y falta de permisos). Desde la terminal:
+
+```bash
+npx newman run postman/reactive-ticketing.postman_collection.json --env-var "jwtSecret=<tu-secreto>"
+```
 
 ## 8. Uso de los endpoints
 
@@ -283,7 +301,7 @@ Todas las respuestas de error siguen **RFC 9457 Problem Details** (`application/
 | HTTP | `code` |
 |---|---|
 | 400 | `VALIDATION_ERROR` |
-| 401 / 403 | Sin token o sin permiso |
+| 401 / 403 | Sin token o sin permiso (respuesta de Spring Security con cabecera `WWW-Authenticate`, sin cuerpo *problem+json*) |
 | 404 | `EVENT_NOT_FOUND`, `ORDER_NOT_FOUND` |
 | 409 | `SOLD_OUT`, `ACTIVE_ORDER_EXISTS`, `INVALID_STATE_TRANSITION`, `RESERVATION_EXPIRED`, `SALES_CLOSED` |
 | 422 | `IDEMPOTENCY_KEY_REUSED` |
@@ -333,7 +351,8 @@ stateDiagram-v2
 mvn clean verify
 ```
 
-- **Cobertura mínima de líneas: 90 % por módulo**, verificada por JaCoCo. El *build* falla si no se cumple.
+- **Cobertura mínima de líneas: 90 % por módulo**, verificada por JaCoCo en los 10 módulos con lógica (dominio, casos de uso, adaptadores y *entry points*). El *build* falla si no se cumple.
+- `app-service` solo contiene el arranque y el *wiring* de beans (`@Configuration`): su cobertura se reporta, pero no bloquea el *build*. Se valida con la prueba de contexto de Spring Boot y con ArchUnit.
 - Reporte agregado: `applications/app-service/target/site/jacoco-aggregate/index.html`.
 
 | Tipo | Herramientas |
@@ -349,18 +368,35 @@ mvn clean verify
 
 ```bash
 cd infra/terraform/envs/dev
-terraform init
-terraform plan -var-file=terraform.tfvars.example
+cp terraform.tfvars.example terraform.tfvars
+terraform init -backend-config="bucket=<bucket-de-estado>"
+terraform plan -var="image_tag=$(git rev-parse --short HEAD)"
 ```
 
-Despliega VPC en tres zonas sin NAT (VPC Endpoints), ECS Fargate (servicios `api` y `worker` con escalado propio), API Gateway con WAF, Cognito, DynamoDB *on-demand* con PITR y KMS, SQS con DLQ, y alarmas en CloudWatch. Cada entorno tiene su propio estado remoto en S3 con bloqueo nativo. El detalle está en la sección 16 de `docs/ARCHITECTURE.md`.
+Despliega una VPC privada multi-AZ sin NAT (VPC Endpoints), ECS Fargate ARM64 (servicios `api` y `worker` con escalado propio: CPU para la API y *backlog* de SQS para el *worker*, este último con Fargate Spot), API Gateway HTTP API con *authorizer* JWT y *throttling*, ALB interno con WAF, Cognito, DynamoDB *on-demand* con PITR y KMS, SQS con DLQ y alarmas en CloudWatch. Cada entorno tiene su propio estado remoto en S3 con bloqueo nativo. Los módulos se describen en [`infra/terraform/README.md`](infra/terraform/README.md) y el diseño en la sección 16 de `docs/ARCHITECTURE.md`.
 
-## 13. Limitaciones y mejoras
+## 13. CI/CD
+
+`.github/workflows/ci.yml` se ejecuta en cada *push* a `main` y en cada *pull request*:
+
+| Job | Qué verifica |
+|---|---|
+| `build` | `mvn verify`: pruebas, ArchUnit y la compuerta de cobertura (≥ 90 %) |
+| `secrets-scan` | gitleaks sobre todo el historial |
+| `image` | Construcción de la imagen y escaneo con Trivy (falla con HIGH/CRITICAL corregibles) |
+| `terraform` | `fmt -check`, `validate`, tflint y Checkov |
+| `smoke` | Levanta `docker compose` y ejecuta la colección de Postman con Newman |
+
+El despliegue (OIDC hacia ECR/ECS y aprobación manual para producción) está diseñado en la sección 18 de `docs/ARCHITECTURE.md`.
+
+## 14. Limitaciones y mejoras
 
 - **Ítem caliente de inventario** en eventos masivos (unas 1.000 escrituras/s por ítem): *sharding* del contador y sala de espera virtual.
 - **Doble escritura DynamoDB → SQS** mitigada con re-publicación periódica; en producción, *Transactional Outbox* con DynamoDB Streams.
 - **Pago simulado** y sin precios (el enunciado no los define).
-- **SSE por *polling*** con micro-caché; en producción, *fan-out* desde DynamoDB Streams.
+- **SSE por *polling*** con micro-caché; en producción, *fan-out* desde DynamoDB Streams. Detrás de API Gateway la conexión se corta a los 29 s y `EventSource` se reconecta solo; para *streams* largos se expondría por CloudFront o un ALB público.
+- **Trazas distribuidas:** el `X-Correlation-Id` se registra en los logs y en los errores de la API; su propagación hacia los mensajes SQS y la W3C/X-Ray de extremo a extremo es un objetivo de diseño, no está instrumentada.
+- **Versiones:** el proyecto apunta a Spring Boot 4.0 y AWS SDK 2.30. Si Maven no resuelve alguna versión en tu entorno, ajusta las propiedades del `pom.xml` raíz (`aws-sdk.version`, `resilience4j.version`).
 - **Metas de rendimiento** (p95 < 200 ms en `POST /orders`) definidas en el diseño, pendientes de validar con pruebas de carga (k6 o Gatling).
 
 La lista completa y lo que cambiaría en un entorno productivo está en la sección 22 de `docs/ARCHITECTURE.md`.
