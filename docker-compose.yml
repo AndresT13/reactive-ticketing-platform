@@ -1,0 +1,96 @@
+# Local environment: DynamoDB Local + LocalStack (SQS) + one-shot initializer + the app in its two roles.
+#   docker compose up --build                 (SQS on LocalStack, the default profile set in .env)
+#   COMPOSE_PROFILES=elasticmq SQS_HOST=http://elasticmq:9324 docker compose up --build   (SQS on ElasticMQ)
+name: reactive-ticketing
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: deployment/Dockerfile
+  image: reactive-ticketing-platform:local
+  restart: unless-stopped
+  depends_on:
+    aws-init:
+      condition: service_completed_successfully
+  environment: &app-env
+    AWS_REGION: us-east-1
+    # Dummy credentials: DynamoDB Local and LocalStack do not validate them. In AWS the ECS task role is used.
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+    TICKETING_AWS_DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    TICKETING_AWS_SQS_ENDPOINT: ${SQS_HOST:-http://localstack:4566}
+    TICKETING_QUEUES_RESERVATION_REQUESTS_URL: ${SQS_HOST:-http://localstack:4566}/000000000000/ticketing-reservation-requests
+    TICKETING_QUEUES_PAYMENT_REQUESTS_URL: ${SQS_HOST:-http://localstack:4566}/000000000000/ticketing-payment-requests
+    TICKETING_SECURITY_LOCAL_JWT_SECRET: ${TICKETING_SECURITY_LOCAL_JWT_SECRET:?Define TICKETING_SECURITY_LOCAL_JWT_SECRET in .env}
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    ports:
+      - "8000:8000"
+
+  localstack:
+    # Pinned community release (SQS only). If your LocalStack version requires an auth token,
+    # use the ElasticMQ alternative: docker compose --profile elasticmq up (see README).
+    image: localstack/localstack:4.4
+    profiles: ["localstack"]
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      # Queue URLs in the legacy form http://localstack:4566/000000000000/<name>, the same ones the app is configured with.
+      SQS_ENDPOINT_STRATEGY: "off"
+      LOCALSTACK_HOST: localstack:4566
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticmq:
+    # SQS-compatible alternative that needs no account token (the test allows "any other solution").
+    image: softwaremill/elasticmq-native:1.6.11
+    profiles: ["elasticmq"]
+    ports:
+      - "9324:9324"
+
+  aws-init:
+    image: amazon/aws-cli:latest
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+        required: false   # only one of the two SQS providers runs, depending on the active profile
+      elasticmq:
+        condition: service_started
+        required: false
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      SQS_ENDPOINT: ${SQS_HOST:-http://localstack:4566}
+    volumes:
+      - ./deployment/local/init-aws.sh:/init-aws.sh:ro
+    entrypoint: ["/bin/sh", "/init-aws.sh"]
+
+  ticketing-api:
+    <<: *app
+    environment:
+      <<: *app-env
+      TICKETING_ROLES_API: "true"
+      TICKETING_ROLES_WORKER: "false"
+    ports:
+      - "8080:8080"
+
+  ticketing-worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      TICKETING_ROLES_API: "false"
+      TICKETING_ROLES_WORKER: "true"
+    ports:
+      - "8081:8080"   # health endpoint only

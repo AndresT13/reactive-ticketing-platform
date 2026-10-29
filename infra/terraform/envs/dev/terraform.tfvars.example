@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (ignored by git) and adjust.
+region                = "us-east-1"
+environment           = "dev"
+owner                 = "platform-team"
+cost_center           = "ticketing"
+image_tag             = "replace-with-git-sha"
+cognito_domain_prefix = "ticketing-dev-replace-me"
+callback_urls         = ["http://localhost:3000/callback"]
+alarm_emails          = []

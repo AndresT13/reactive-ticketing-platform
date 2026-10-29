@@ -1,0 +1,13 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+.idea
+.vscode
+**/target
+.env
+.env.*
+!.env.example
+infra
+docs
+postman
+*.md
