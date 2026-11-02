@@ -1,5 +1,10 @@
 # Public edge: API Gateway HTTP API (JWT authorizer + throttling) -> VPC Link -> internal ALB (+ WAF) -> API tasks.
+# HTTPS on the private ALB is opt-in until a trusted certificate and name are supplied.
 # HTTP APIs cannot be associated with AWS WAF directly, so the web ACL protects the ALB behind the VPC Link.
+
+locals {
+  alb_tls_enabled = var.alb_tls != null
+}
 
 resource "aws_security_group" "vpc_link" {
   name        = "${var.name}-vpc-link"
@@ -12,6 +17,17 @@ resource "aws_security_group" "vpc_link" {
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      description = "HTTPS to the internal ALB"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr_block]
+    }
   }
 }
 
@@ -26,6 +42,17 @@ resource "aws_security_group" "alb" {
     to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.vpc_link.id]
+  }
+
+  dynamic "ingress" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      description     = "HTTPS from the VPC Link"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      security_groups = [aws_security_group.vpc_link.id]
+    }
   }
 
   egress {
@@ -74,11 +101,41 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-# Traffic inside the VPC travels over the private network; TLS terminates at API Gateway.
+# HTTP remains the default while no certificate is configured. With TLS enabled,
+# port 80 redirects to the HTTPS listener, and API Gateway uses HTTPS directly.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
+
+  dynamic "default_action" {
+    for_each = local.alb_tls_enabled ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.api.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = local.alb_tls_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.this.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.alb_tls != null ? var.alb_tls.certificate_arn : null
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
     type             = "forward"
@@ -197,10 +254,17 @@ resource "aws_apigatewayv2_integration" "alb" {
   api_id               = aws_apigatewayv2_api.this.id
   integration_type     = "HTTP_PROXY"
   integration_method   = "ANY"
-  integration_uri      = aws_lb_listener.http.arn
+  integration_uri      = local.alb_tls_enabled ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   connection_type      = "VPC_LINK"
   connection_id        = aws_apigatewayv2_vpc_link.this.id
   timeout_milliseconds = 29000
+
+  dynamic "tls_config" {
+    for_each = local.alb_tls_enabled ? [var.alb_tls.server_name] : []
+    content {
+      server_name_to_verify = tls_config.value
+    }
+  }
 }
 
 # Authenticated by default; the service still enforces scopes (defense in depth).
