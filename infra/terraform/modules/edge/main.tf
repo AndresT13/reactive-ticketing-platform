@@ -1,5 +1,10 @@
 # Public edge: API Gateway HTTP API (JWT authorizer + throttling) -> VPC Link -> internal ALB (+ WAF) -> API tasks.
+# HTTPS on the private ALB is opt-in until a trusted certificate and name are supplied.
 # HTTP APIs cannot be associated with AWS WAF directly, so the web ACL protects the ALB behind the VPC Link.
+
+locals {
+  alb_tls_enabled = var.alb_tls != null
+}
 
 resource "aws_security_group" "vpc_link" {
   name        = "${var.name}-vpc-link"
@@ -12,6 +17,17 @@ resource "aws_security_group" "vpc_link" {
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr_block]
+  }
+
+  dynamic "egress" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      description = "HTTPS to the internal ALB"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr_block]
+    }
   }
 }
 
@@ -26,6 +42,17 @@ resource "aws_security_group" "alb" {
     to_port         = 80
     protocol        = "tcp"
     security_groups = [aws_security_group.vpc_link.id]
+  }
+
+  dynamic "ingress" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      description     = "HTTPS from the VPC Link"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      security_groups = [aws_security_group.vpc_link.id]
+    }
   }
 
   egress {
@@ -46,6 +73,15 @@ resource "aws_lb" "this" {
   drop_invalid_header_fields = true
   idle_timeout               = 60
   enable_deletion_protection = var.deletion_protection
+
+  # ALB access logs are stored in a dedicated, private SSE-S3 bucket.
+  access_logs {
+    bucket  = aws_s3_bucket.alb_access_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.alb_access_logs]
 }
 
 resource "aws_lb_target_group" "api" {
@@ -65,11 +101,41 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-# Traffic inside the VPC travels over the private network; TLS terminates at API Gateway.
+# HTTP remains the default while no certificate is configured. With TLS enabled,
+# port 80 redirects to the HTTPS listener, and API Gateway uses HTTPS directly.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
+
+  dynamic "default_action" {
+    for_each = local.alb_tls_enabled ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.api.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.alb_tls_enabled ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = local.alb_tls_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.this.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.alb_tls != null ? var.alb_tls.certificate_arn : null
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
     type             = "forward"
@@ -188,10 +254,17 @@ resource "aws_apigatewayv2_integration" "alb" {
   api_id               = aws_apigatewayv2_api.this.id
   integration_type     = "HTTP_PROXY"
   integration_method   = "ANY"
-  integration_uri      = aws_lb_listener.http.arn
+  integration_uri      = local.alb_tls_enabled ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   connection_type      = "VPC_LINK"
   connection_id        = aws_apigatewayv2_vpc_link.this.id
   timeout_milliseconds = 29000
+
+  dynamic "tls_config" {
+    for_each = local.alb_tls_enabled ? [var.alb_tls.server_name] : []
+    content {
+      server_name_to_verify = tls_config.value
+    }
+  }
 }
 
 # Authenticated by default; the service still enforces scopes (defense in depth).
@@ -204,16 +277,18 @@ resource "aws_apigatewayv2_route" "protected" {
 }
 
 resource "aws_apigatewayv2_route" "public_availability" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "GET /api/v1/events/{eventId}/availability"
-  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
+  authorization_type = "NONE"
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /api/v1/events/{eventId}/availability"
+  target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 
 # SSE is reachable but capped by the 29 s integration timeout; EventSource reconnects automatically (README, limitations).
 resource "aws_apigatewayv2_route" "public_availability_stream" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "GET /api/v1/events/{eventId}/availability/stream"
-  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
+  authorization_type = "NONE"
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /api/v1/events/{eventId}/availability/stream"
+  target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 
 resource "aws_cloudwatch_log_group" "access" {
@@ -240,4 +315,129 @@ resource "aws_apigatewayv2_stage" "default" {
       sub       = "$context.authorizer.claims.sub"
     })
   }
+}
+
+# ---------- WAF audit logging ----------
+resource "aws_cloudwatch_log_group" "waf" {
+  name              = "aws-waf-logs-${var.name}"
+  retention_in_days = 365
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "this" {
+  resource_arn            = aws_wafv2_web_acl.this.arn
+  log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
+
+  redacted_fields {
+    single_header {
+      name = "authorization"
+    }
+  }
+}
+
+# ---------- ALB access logging ----------
+# The ALB log delivery service only supports SSE-S3 for this destination.
+data "aws_caller_identity" "alb_logs" {}
+
+data "aws_region" "alb_logs" {}
+
+resource "aws_s3_bucket" "alb_access_logs" {
+  bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.alb_logs.account_id}"
+  force_destroy = false
+}
+
+# Preserve log history and control storage growth independently from ALB delivery.
+resource "aws_s3_bucket_versioning" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    id     = "retain-alb-logs-one-year"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+
+    expiration {
+      days = 365
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 365
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.alb_access_logs]
+}
+
+# Disable ACL-based grants; the log delivery service uses the bucket policy.
+resource "aws_s3_bucket_ownership_controls" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_access_logs" {
+  bucket                  = aws_s3_bucket.alb_access_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowALBLogDelivery"
+        Effect    = "Allow"
+        Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.alb_access_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.alb_logs.account_id}/*"
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = "arn:aws:elasticloadbalancing:${data.aws_region.alb_logs.region}:${data.aws_caller_identity.alb_logs.account_id}:loadbalancer/*"
+          }
+        }
+      },
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.alb_access_logs.arn,
+          "${aws_s3_bucket.alb_access_logs.arn}/*"
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
 }

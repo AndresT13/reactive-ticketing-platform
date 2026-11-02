@@ -7,7 +7,7 @@ module "observability" {
   source             = "../../modules/observability"
   name               = local.name
   region             = var.region
-  log_retention_days = 30
+  log_retention_days = 365
   alarm_emails       = var.alarm_emails
 }
 
@@ -17,7 +17,7 @@ module "network" {
   region             = var.region
   az_count           = 2
   kms_key_arn        = module.observability.kms_key_arn
-  log_retention_days = 30
+  log_retention_days = 365
 }
 
 module "data" {
@@ -52,6 +52,7 @@ module "edge" {
   jwt_issuer_uri      = module.identity.issuer_uri
   jwt_audiences       = module.identity.client_ids
   kms_key_arn         = module.observability.kms_key_arn
+  log_retention_days  = 365
   deletion_protection = false
 }
 

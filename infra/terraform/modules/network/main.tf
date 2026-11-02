@@ -4,7 +4,7 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  azs                 = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  azs                 = var.availability_zone_names == null ? slice(data.aws_availability_zones.available.names, 0, var.az_count) : var.availability_zone_names
   interface_endpoints = toset(["sqs", "ecr.api", "ecr.dkr", "logs", "secretsmanager", "ssm", "sts", "xray"])
 }
 

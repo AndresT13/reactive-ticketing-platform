@@ -29,7 +29,7 @@ variable "kms_key_arn" {
 
 variable "log_retention_days" {
   type    = number
-  default = 30
+  default = 365
 }
 
 variable "throttling_rate_limit" {
@@ -50,4 +50,23 @@ variable "waf_rate_limit_per_5min" {
 variable "deletion_protection" {
   type    = bool
   default = true
+}
+
+# Supply both fields together only after provisioning a valid ACM certificate.
+# Null preserves the existing HTTP private integration until TLS can be deployed.
+variable "alb_tls" {
+  description = "Optional verified HTTPS configuration for the private ALB."
+  type = object({
+    certificate_arn = string
+    server_name     = string
+  })
+  default = null
+
+  validation {
+    condition = var.alb_tls == null ? true : (
+      can(regex("^arn:aws[a-z-]*:acm:[^:]+:[0-9]{12}:certificate/.+", var.alb_tls.certificate_arn)) &&
+      length(trimspace(var.alb_tls.server_name)) > 0
+    )
+    error_message = "Provide a valid ACM certificate ARN and non-empty TLS server name."
+  }
 }

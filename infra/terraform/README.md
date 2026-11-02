@@ -26,3 +26,12 @@ Validación sin credenciales: `terraform init -backend=false && terraform valida
 - Cognito emite los *scopes* como `ticketing/purchase`; la API los normaliza a `ticketing:purchase`.
 - API Gateway corta las integraciones a los 29 s, así que el SSE se reconecta (EventSource lo hace solo). Para *streams* largos en producción se expondría por CloudFront o un ALB público con WAF.
 - `staging` y `prod` replican `envs/dev` en cuentas separadas, con `deletion_protection = true`, 3 AZ y más tareas.
+
+## Endurecimiento pendiente de habilitación (PR #2)
+
+- **ALB TLS (opcional):** el módulo `edge` acepta `alb_tls = { certificate_arn = "...", server_name = "..." }`.
+  Cuando se suministran ambos valores, API Gateway usa HTTPS validado con SNI contra el listener 443, y HTTP 80 redirige a HTTPS. Sin esta configuración **se conserva HTTP**, para evitar un cambio de tráfico sin certificado. El certificado ACM debe estar en la región del ALB y su nombre debe coincidir con `server_name`.
+- **Zonas de disponibilidad:** `network.availability_zone_names` permite fijar la lista exacta y su orden. Para entornos existentes, consultar el estado Terraform y las subredes reales antes de proporcionarla; omitirla conserva el comportamiento previo. El hallazgo Checkov sobre descubrimiento dinámico puede persistir mientras esta opción no sea obligatoria.
+- **ALB deletion protection:** el entorno `dev` conserva `false` intencionalmente para permitir su ciclo de vida. En producción se debe habilitar mediante `deletion_protection = true`.
+- **Rutas públicas:** las dos rutas GET de disponibilidad permanecen `authorization_type = "NONE"` por contrato de API; la compra y administración continúan protegidas mediante JWT. Esta exposición es intencional y debe quedar registrada como excepción auditada de Checkov.
+- **Antes de un despliegue:** ejecutar `terraform plan` con backend y credenciales del entorno, verificar cambios de red/ALB, y probar entrega real de logs WAF y ALB. No asumir que `terraform validate` equivale a un despliegue exitoso.

@@ -8,7 +8,7 @@ variable "region" {
 
 variable "log_retention_days" {
   type    = number
-  default = 30
+  default = 365
 }
 
 variable "alarm_emails" {
