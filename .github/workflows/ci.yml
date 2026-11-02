@@ -83,7 +83,7 @@ jobs:
       - name: Check Terraform formatting (show diff on failure)
         run: |
           terraform fmt -recursive
-          git diff --exit-code -- infra/terraform
+          git -C ../.. diff --exit-code -- infra/terraform
       - name: terraform validate (no backend, no credentials)
         working-directory: infra/terraform/envs/dev
         run: |
