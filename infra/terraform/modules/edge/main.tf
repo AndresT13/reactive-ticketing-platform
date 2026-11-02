@@ -282,6 +282,36 @@ resource "aws_s3_bucket" "alb_access_logs" {
   force_destroy = false
 }
 
+# Preserve log history and control storage growth independently from ALB delivery.
+resource "aws_s3_bucket_versioning" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    id     = "retain-alb-logs-one-year"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = 365
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 365
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.alb_access_logs]
+}
+
 resource "aws_s3_bucket_public_access_block" "alb_access_logs" {
   bucket                  = aws_s3_bucket.alb_access_logs.id
   block_public_acls       = true
