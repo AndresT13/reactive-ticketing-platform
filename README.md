@@ -4,7 +4,7 @@ Backend **reactivo y orientado a eventos** para la venta de entradas a eventos (
 
 > Java 25 · Spring Boot 4 · Spring WebFlux · Project Reactor · DynamoDB · SQS · Docker · Clean Architecture · Terraform (AWS)
 
-La documentación completa de arquitectura (atributos de calidad, modelo C4, DDD, patrones, seguridad, AWS y 16 ADR) está en **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+**Modo recomendado sin presupuesto AWS:** [laboratorio local con Docker, DynamoDB Local y SQS simulado](docs/LOCAL_LAB.md). La infraestructura Terraform permanece documentada, pero no se despliega.\n\nLa documentación completa de arquitectura (atributos de calidad, modelo C4, DDD, patrones, seguridad, AWS y 16 ADR) está en **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
 
@@ -158,11 +158,13 @@ Verificar que está arriba:
 curl http://localhost:8080/actuator/health
 ```
 
-Detener y borrar los datos:
+Detener los servicios **sin borrar los datos históricos**:
 
 ```bash
-docker compose down -v
+docker compose stop
 ```
+
+> **Precaución:** No ejecutes `docker compose down -v` ni `docker volume rm` en el laboratorio; el volumen externo `ticketing-ddb-restore-check` conserva los registros históricos. Para trabajar sin cargos AWS, sigue [la guía de laboratorio local](docs/LOCAL_LAB.md).
 
 ## 7. Autenticación
 
