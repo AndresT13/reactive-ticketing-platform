@@ -80,10 +80,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.4"
-      - name: Check Terraform formatting (show diff on failure)
-        run: |
-          terraform fmt -recursive
-          git -C ../.. diff --exit-code -- infra/terraform
+      - run: terraform fmt -recursive -check
       - name: terraform validate (no backend, no credentials)
         working-directory: infra/terraform/envs/dev
         run: |
