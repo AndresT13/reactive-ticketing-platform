@@ -99,5 +99,5 @@ services:
 
 volumes:
   dynamodb-data:
-    external: true
-    name: ticketing-ddb-restore-check
+    external: ${DYNAMODB_VOLUME_EXTERNAL:-true}
+    name: ${DYNAMODB_VOLUME_NAME:-ticketing-ddb-restore-check}

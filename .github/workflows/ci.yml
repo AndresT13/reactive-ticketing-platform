@@ -109,6 +109,8 @@ jobs:
         run: |
           echo "TICKETING_SECURITY_LOCAL_JWT_SECRET=$(openssl rand -hex 32)" > .env
           echo "COMPOSE_PROFILES=localstack" >> .env
+          echo "DYNAMODB_VOLUME_EXTERNAL=false" >> .env
+          echo "DYNAMODB_VOLUME_NAME=ticketing-ddb-ci-${GITHUB_RUN_ID}" >> .env
           docker compose up -d --build --wait --wait-timeout 300 ticketing-api ticketing-worker
       - name: Run the Postman collection
         run: |
