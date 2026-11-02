@@ -25,11 +25,13 @@ x-app: &app
 
 services:
   dynamodb-local:
+    user: "0:0"
     image: amazon/dynamodb-local:latest
-    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
     ports:
       - "8000:8000"
-
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
   localstack:
     # Pinned community release (SQS only). If your LocalStack version requires an auth token,
     # use the ElasticMQ alternative: docker compose --profile elasticmq up (see README).
@@ -94,3 +96,8 @@ services:
       TICKETING_ROLES_WORKER: "true"
     ports:
       - "8081:8080"   # health endpoint only
+
+volumes:
+  dynamodb-data:
+    external: true
+    name: ticketing-ddb-restore-check

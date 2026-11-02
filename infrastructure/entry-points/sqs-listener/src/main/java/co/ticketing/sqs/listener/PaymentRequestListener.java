@@ -5,6 +5,7 @@ import co.ticketing.model.order.OrderCommand;
 import co.ticketing.model.order.ProcessPaymentCommand;
 import co.ticketing.usecase.order.PaymentOutcome;
 import co.ticketing.usecase.order.ProcessPaymentUseCase;
+import co.ticketing.usecase.payment.RegisterPaymentCompensationUseCase;
 import io.micrometer.core.instrument.MeterRegistry;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
@@ -13,11 +14,14 @@ import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 public final class PaymentRequestListener extends AbstractSqsListener {
 
     private final ProcessPaymentUseCase processPayment;
+    private final RegisterPaymentCompensationUseCase registerCompensation;
 
     public PaymentRequestListener(SqsAsyncClient sqs, String queueUrl, ListenerSettings settings, CommandMessageCodec codec,
-                                  MeterRegistry meters, ProcessPaymentUseCase processPayment) {
+                                  MeterRegistry meters, ProcessPaymentUseCase processPayment,
+                                  RegisterPaymentCompensationUseCase registerCompensation) {
         super(sqs, "payment-requests", queueUrl, settings, codec, meters);
         this.processPayment = processPayment;
+        this.registerCompensation = java.util.Objects.requireNonNull(registerCompensation);
     }
 
     @Override
@@ -25,7 +29,17 @@ public final class PaymentRequestListener extends AbstractSqsListener {
         if (!(command instanceof ProcessPaymentCommand payment)) {
             return Mono.error(new IllegalArgumentException("Unexpected command on payment queue: " + command));
         }
-        return processPayment.execute(payment).map(this::label);
+        return processPayment.execute(payment)
+                .flatMap(outcome -> {
+                    if (outcome instanceof PaymentOutcome.RefundRequired refund) {
+                        return registerCompensation.execute(
+                                        refund.orderId().value(),
+                                        refund.authorizationId()
+                                )
+                                .thenReturn(label(outcome));
+                    }
+                    return Mono.just(label(outcome));
+                });
     }
 
     String label(PaymentOutcome outcome) {

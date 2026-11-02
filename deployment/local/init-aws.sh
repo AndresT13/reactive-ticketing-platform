@@ -58,6 +58,24 @@ create_table ticketing-order-guards \
   --attribute-definitions AttributeName=guardKey,AttributeType=S \
   --key-schema AttributeName=guardKey,KeyType=HASH
 
+# Durable payment compensations.
+# The deterministic compensationId prevents duplicate records.
+create_table ticketing-payment-compensations \
+  --attribute-definitions AttributeName=compensationId,AttributeType=S \
+  --key-schema AttributeName=compensationId,KeyType=HASH
+
+# Durable payment authorization attempts.
+create_table ticketing-payment-authorizations \
+  --attribute-definitions AttributeName=orderId,AttributeType=S \
+  --key-schema AttributeName=orderId,KeyType=HASH
+
+
+# Durable results of the simulated external payment provider.
+# Independent from ticketing-payment-authorizations.
+create_table ticketing-payment-provider-results \
+  --attribute-definitions AttributeName=orderId,AttributeType=S \
+  --key-schema AttributeName=orderId,KeyType=HASH
+
 create_queue() {
   name="$1"; visibility="$2"
   dlq_url=$($SQS create-queue --queue-name "$name-dlq" --attributes MessageRetentionPeriod=1209600 --query QueueUrl --output text)

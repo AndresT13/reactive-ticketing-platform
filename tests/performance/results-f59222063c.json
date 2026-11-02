@@ -1,0 +1,21 @@
+{
+  "eventId": "89fbef58-9300-4a9e-b372-e1013b9cea9c",
+  "httpCounts": {
+    "202": 500
+  },
+  "orderStates": {
+    "RESERVED": 100,
+    "REJECTED": 400
+  },
+  "inventory": {
+    "eventId": "89fbef58-9300-4a9e-b372-e1013b9cea9c",
+    "totalCapacity": 100,
+    "available": 0,
+    "held": 100,
+    "reserved": 100,
+    "pendingConfirmation": 0,
+    "sold": 0,
+    "complimentary": 0
+  },
+  "failedAdmissions": []
+}

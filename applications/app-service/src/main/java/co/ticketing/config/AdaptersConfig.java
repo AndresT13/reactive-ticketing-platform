@@ -11,7 +11,8 @@ import co.ticketing.dynamodb.mapper.OrderItemMapper;
 import co.ticketing.messaging.CommandMessageCodec;
 import co.ticketing.model.common.IdGenerator;
 import co.ticketing.model.order.OrderPolicy;
-import co.ticketing.payment.SimulatedPaymentGateway;
+import co.ticketing.dynamodb.DynamoDbSimulatedPaymentGateway;
+import co.ticketing.payment.SimulatedPaymentRefundGateway;
 import co.ticketing.sqs.publisher.SqsOrderCommandPublisher;
 import co.ticketing.sqs.publisher.SqsQueues;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -20,6 +21,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
+import co.ticketing.dynamodb.DynamoDbPaymentCompensationRepository;
+import co.ticketing.dynamodb.DynamoDbPaymentAuthorizationRepository;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -113,8 +117,48 @@ public class AdaptersConfig {
                 codec, sqsPublisherCircuitBreaker, queues.publishTimeout());
     }
 
+
     @Bean
-    SimulatedPaymentGateway paymentGateway(TicketingProperties properties) {
-        return new SimulatedPaymentGateway(properties.payment().simulatedLatency());
+    SimulatedPaymentRefundGateway paymentRefundGateway(
+            TicketingProperties properties
+    ) {
+        return new SimulatedPaymentRefundGateway(
+                properties.payment().simulatedLatency()
+        );
     }
+
+    @Bean
+    DynamoDbSimulatedPaymentGateway paymentGateway(
+            DynamoDbAsyncClient dynamoDb,
+            TicketingProperties properties,
+            @Value("${ticketing.tables.payment-provider-results:ticketing-payment-provider-results}")
+            String tableName) {
+        return new DynamoDbSimulatedPaymentGateway(
+                dynamoDb,
+                tableName,
+                properties.payment().simulatedLatency());
+    }
+
+
+    @Bean
+    DynamoDbPaymentCompensationRepository paymentCompensationRepository(
+            DynamoDbAsyncClient dynamoDb,
+            TicketingProperties properties
+    ) {
+        return new DynamoDbPaymentCompensationRepository(
+                dynamoDb,
+                properties.tables().paymentCompensations()
+        );
+    }
+
+
+    @Bean
+    DynamoDbPaymentAuthorizationRepository paymentAuthorizationRepository(
+            DynamoDbAsyncClient dynamoDb,
+            @Value("${ticketing.tables.payment-authorizations}")
+            String tableName) {
+        return new DynamoDbPaymentAuthorizationRepository(
+                dynamoDb, tableName);
+    }
+
 }

@@ -49,6 +49,8 @@ ticketing:
     audit: ticketing-audit
     idempotency: ticketing-idempotency-keys
     guards: ticketing-order-guards
+    payment-compensations: ticketing-payment-compensations
+    payment-authorizations: ticketing-payment-authorizations
   queues:
     reservation-requests-url: ${TICKETING_QUEUES_RESERVATION_REQUESTS_URL:http://localhost:4566/000000000000/ticketing-reservation-requests}
     payment-requests-url: ${TICKETING_QUEUES_PAYMENT_REQUESTS_URL:http://localhost:4566/000000000000/ticketing-payment-requests}

@@ -19,7 +19,7 @@ public record TicketingProperties(Roles roles, Aws aws, Tables tables, Queues qu
     }
 
     public record Tables(String events, String inventory, String orders, String tickets, String audit,
-                         String idempotency, String guards) {
+                         String idempotency, String guards,  String paymentCompensations) {
     }
 
     public record Queues(String reservationRequestsUrl, String paymentRequestsUrl, Duration publishTimeout) {

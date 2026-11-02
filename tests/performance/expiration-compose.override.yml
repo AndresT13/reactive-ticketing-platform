@@ -1,0 +1,7 @@
+# Solo para la prueba local de expiracion. No utilizar en produccion.
+services:
+  ticketing-worker:
+    environment:
+      TICKETING_ORDERS_RESERVATION_TTL: "20s"
+      TICKETING_SCHEDULER_INITIAL_DELAY: "2s"
+      TICKETING_SCHEDULER_INTERVAL: "3s"

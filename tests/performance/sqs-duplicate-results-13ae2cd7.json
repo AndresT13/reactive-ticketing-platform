@@ -1,0 +1,26 @@
+{
+  "eventId": "83f52b6f-3cd7-4d75-a7d8-1c83b5388754",
+  "orderId": "b22c4df9-33ca-4510-aead-ea7b358ff0a1",
+  "duplicateMessages": 2,
+  "before": {
+    "eventId": "83f52b6f-3cd7-4d75-a7d8-1c83b5388754",
+    "totalCapacity": 1,
+    "available": 0,
+    "held": 1,
+    "reserved": 1,
+    "pendingConfirmation": 0,
+    "sold": 0,
+    "complimentary": 0
+  },
+  "after": {
+    "eventId": "83f52b6f-3cd7-4d75-a7d8-1c83b5388754",
+    "totalCapacity": 1,
+    "available": 0,
+    "held": 1,
+    "reserved": 1,
+    "pendingConfirmation": 0,
+    "sold": 0,
+    "complimentary": 0
+  },
+  "status": "PASS"
+}

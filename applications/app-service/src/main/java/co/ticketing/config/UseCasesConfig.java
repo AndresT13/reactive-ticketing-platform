@@ -10,6 +10,7 @@ import co.ticketing.model.order.gateways.OrderCommandPublisher;
 import co.ticketing.model.order.gateways.OrderRepository;
 import co.ticketing.model.order.gateways.OrderTransitionStore;
 import co.ticketing.model.payment.gateways.PaymentGateway;
+import co.ticketing.model.payment.compensation.PaymentCompensationRepository;
 import co.ticketing.usecase.availability.GetAvailabilityUseCase;
 import co.ticketing.usecase.complimentary.IssueComplimentaryTicketsUseCase;
 import co.ticketing.usecase.event.CreateEventUseCase;
@@ -22,6 +23,11 @@ import co.ticketing.usecase.order.ConfirmOrderUseCase;
 import co.ticketing.usecase.order.GetOrderUseCase;
 import co.ticketing.usecase.order.PlaceOrderUseCase;
 import co.ticketing.usecase.order.ProcessPaymentUseCase;
+import co.ticketing.usecase.payment.RegisterPaymentCompensationUseCase;
+import co.ticketing.usecase.payment.AuthorizePaymentUseCase;
+import co.ticketing.usecase.payment.ReconcilePaymentAuthorizationUseCase;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationRepository;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationLookupGateway;
 import co.ticketing.usecase.order.ReserveTicketsUseCase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -75,9 +81,18 @@ public class UseCasesConfig {
     }
 
     @Bean
+    RegisterPaymentCompensationUseCase registerPaymentCompensationUseCase(
+            PaymentCompensationRepository repository,
+            Clock clock
+    ) {
+        return new RegisterPaymentCompensationUseCase(repository, clock);
+    }
+
+    @Bean
     ProcessPaymentUseCase processPaymentUseCase(OrderRepository orders, OrderTransitionStore store,
-                                                PaymentGateway payments, Clock clock) {
-        return new ProcessPaymentUseCase(orders, store, payments, clock);
+                                                AuthorizePaymentUseCase payments, Clock clock,
+            ReconcilePaymentAuthorizationUseCase reconciliation) {
+        return new ProcessPaymentUseCase(orders, store, payments, clock, reconciliation);
     }
 
     @Bean
@@ -109,4 +124,23 @@ public class UseCasesConfig {
                                                                 TicketingProperties properties) {
         return new RepublishStalledOrdersUseCase(orders, publisher, clock, policy, properties.orders().sweepBatchSize());
     }
+
+    @Bean
+    AuthorizePaymentUseCase authorizePaymentUseCase(
+            PaymentAuthorizationRepository repository,
+            PaymentGateway gateway,
+            Clock clock) {
+        return new AuthorizePaymentUseCase(
+                repository, gateway, clock);
+    }
+
+    @Bean
+    ReconcilePaymentAuthorizationUseCase reconcilePaymentAuthorizationUseCase(
+            PaymentAuthorizationRepository repository,
+            PaymentAuthorizationLookupGateway gateway,
+            Clock clock) {
+        return new ReconcilePaymentAuthorizationUseCase(
+                repository, gateway, clock);
+    }
+
 }

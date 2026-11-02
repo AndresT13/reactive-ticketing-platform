@@ -1,0 +1,103 @@
+{
+  "status": "PASS",
+  "results": [
+    {
+      "scenario": "approved",
+      "eventId": "cdd53d79-3c85-480c-949f-6f52bd1ef94a",
+      "orderId": "d42479cf-d827-4650-a575-490e346a0f63",
+      "before": {
+        "eventId": "cdd53d79-3c85-480c-949f-6f52bd1ef94a",
+        "totalCapacity": 1,
+        "available": 0,
+        "held": 1,
+        "reserved": 1,
+        "pendingConfirmation": 0,
+        "sold": 0,
+        "complimentary": 0
+      },
+      "after": {
+        "eventId": "cdd53d79-3c85-480c-949f-6f52bd1ef94a",
+        "totalCapacity": 1,
+        "available": 0,
+        "held": 0,
+        "reserved": 0,
+        "pendingConfirmation": 0,
+        "sold": 1,
+        "complimentary": 0
+      },
+      "finalOrder": {
+        "orderId": "d42479cf-d827-4650-a575-490e346a0f63",
+        "eventId": "cdd53d79-3c85-480c-949f-6f52bd1ef94a",
+        "quantity": 1,
+        "status": "SOLD",
+        "ticketStatus": "SOLD",
+        "ticketIds": [
+          "92a20a88-eb9b-4c38-9d75-17133e12a0e4"
+        ],
+        "expiresAt": "2026-11-02T01:44:52.675Z",
+        "failureReason": null,
+        "createdAt": "2026-11-02T01:34:52.662Z",
+        "updatedAt": "2026-11-02T01:34:53.448Z",
+        "_links": {
+          "self": {
+            "href": "/api/v1/orders/d42479cf-d827-4650-a575-490e346a0f63",
+            "method": "GET"
+          },
+          "event": {
+            "href": "/api/v1/events/cdd53d79-3c85-480c-949f-6f52bd1ef94a",
+            "method": "GET"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "declined",
+      "eventId": "e567ee34-e723-4fa9-b2b2-6044a81b3d14",
+      "orderId": "1fddaf2c-ae77-45c1-ab46-c10545718fa0",
+      "before": {
+        "eventId": "e567ee34-e723-4fa9-b2b2-6044a81b3d14",
+        "totalCapacity": 1,
+        "available": 0,
+        "held": 1,
+        "reserved": 1,
+        "pendingConfirmation": 0,
+        "sold": 0,
+        "complimentary": 0
+      },
+      "after": {
+        "eventId": "e567ee34-e723-4fa9-b2b2-6044a81b3d14",
+        "totalCapacity": 1,
+        "available": 1,
+        "held": 0,
+        "reserved": 0,
+        "pendingConfirmation": 0,
+        "sold": 0,
+        "complimentary": 0
+      },
+      "finalOrder": {
+        "orderId": "1fddaf2c-ae77-45c1-ab46-c10545718fa0",
+        "eventId": "e567ee34-e723-4fa9-b2b2-6044a81b3d14",
+        "quantity": 1,
+        "status": "REJECTED",
+        "ticketStatus": "AVAILABLE",
+        "ticketIds": [
+          "440d8136-7ef1-4c02-9e3b-ba5442aac80f"
+        ],
+        "expiresAt": "2026-11-02T01:44:54.358Z",
+        "failureReason": "PAYMENT_DECLINED",
+        "createdAt": "2026-11-02T01:34:54.343Z",
+        "updatedAt": "2026-11-02T01:34:55.106Z",
+        "_links": {
+          "self": {
+            "href": "/api/v1/orders/1fddaf2c-ae77-45c1-ab46-c10545718fa0",
+            "method": "GET"
+          },
+          "event": {
+            "href": "/api/v1/events/e567ee34-e723-4fa9-b2b2-6044a81b3d14",
+            "method": "GET"
+          }
+        }
+      }
+    }
+  ]
+}

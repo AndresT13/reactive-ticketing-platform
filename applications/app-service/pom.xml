@@ -15,10 +15,6 @@
     <name>applications :: app-service</name>
     <description>Bootstrap module: Spring Boot application, configuration and bean wiring (roles api | worker).</description>
 
-    <properties>
-        <!-- Wiring-only module: its coverage is reported (aggregate report) but does not gate the build. -->
-        <coverage.haltOnFailure>false</coverage.haltOnFailure>
-    </properties>
 
     <dependencies>
         <dependency>

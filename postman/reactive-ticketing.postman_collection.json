@@ -657,7 +657,35 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const newKey = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "pm.collectionVariables.set(\"fixedIdempotencyKey\", newKey);",
+                  "console.log(\"Idempotency-Key:\", newKey);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"First request accepted\", () => {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "if (pm.response.code === 202) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set(\"firstReplayOrderId\", response.orderId);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Replay same key + same body -> same order",
@@ -705,7 +733,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('202', () => pm.response.to.have.status(202));"
+                  "pm.test(\"Replay returns same order\", () => {",
+                  "    pm.response.to.have.status(202);",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.orderId).to.eql(",
+                  "        pm.collectionVariables.get(\"firstReplayOrderId\")",
+                  "    );",
+                  "});"
                 ]
               }
             }

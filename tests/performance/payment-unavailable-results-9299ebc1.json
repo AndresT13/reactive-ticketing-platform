@@ -1,0 +1,31 @@
+{
+  "elapsedSeconds": 370,
+  "test": {
+    "eventId": "76d32076-0501-436d-9765-2afdce14024c",
+    "orderId": "9299ebc1-2f5f-4d4c-8792-adb27a51333a",
+    "buyer": "outage-test-buyer-49a8f6bba42b41f4b4962e74744c51f0",
+    "submittedUtc": "2026-11-02T01:42:27.181544+00:00",
+    "submittedEpoch": 1793583747.181567
+  },
+  "snapshot": {
+    "orderStatus": "REJECTED",
+    "inventory": {
+      "eventId": "76d32076-0501-436d-9765-2afdce14024c",
+      "totalCapacity": 1,
+      "available": 1,
+      "held": 0,
+      "reserved": 0,
+      "pendingConfirmation": 0,
+      "sold": 0,
+      "complimentary": 0
+    },
+    "paymentQueue": {
+      "visible": 0,
+      "inFlight": 0
+    },
+    "paymentDLQ": {
+      "visible": 0,
+      "inFlight": 0
+    }
+  }
+}

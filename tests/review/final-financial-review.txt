@@ -1,0 +1,587 @@
+===== COMMIT RESULT =====
+package co.ticketing.model.order;
+
+/** Business outcome of committing an {@link OrderTransition}. Technical failures travel as errors instead. */
+public sealed interface CommitResult {
+
+    OrderTransition transition();
+
+    /** Every condition held and all items were written atomically. */
+    record Committed(OrderTransition transition) implements CommitResult {
+    }
+
+    /** The inventory bucket did not have enough tickets: the conditional write prevented an oversell. */
+    record InsufficientInventory(OrderTransition transition) implements CommitResult {
+    }
+
+    /** The order changed concurrently or the step was already applied (duplicate message). */
+    record StaleOrder(OrderTransition transition) implements CommitResult {
+    }
+}
+===== PROCESS PAYMENT =====
+package co.ticketing.usecase.order;
+
+import co.ticketing.model.order.CommitResult;
+import co.ticketing.model.order.Order;
+import co.ticketing.model.order.OrderStatus;
+import co.ticketing.model.order.ProcessPaymentCommand;
+import co.ticketing.model.order.RejectionReason;
+import co.ticketing.model.order.gateways.OrderRepository;
+import co.ticketing.model.order.gateways.OrderTransitionStore;
+import co.ticketing.model.payment.PaymentRequest;
+import co.ticketing.model.payment.PaymentResult;
+import co.ticketing.usecase.payment.AuthorizePaymentUseCase;
+import co.ticketing.usecase.payment.ReconcilePaymentAuthorizationUseCase;
+import co.ticketing.model.payment.authorization.PaymentAuthorization;
+import reactor.core.publisher.Mono;
+
+import java.time.Clock;
+import java.time.Instant;
+
+/** Asynchronous step (SQS consumer): authorizes the payment and settles the order as SOLD or REJECTED. */
+public final class ProcessPaymentUseCase {
+
+    private final OrderRepository orders;
+    private final OrderTransitionStore store;
+    private final AuthorizePaymentUseCase payments;
+    private final Clock clock;
+    private final ReconcilePaymentAuthorizationUseCase reconciliation;
+
+    public ProcessPaymentUseCase(
+            OrderRepository orders,
+            OrderTransitionStore store,
+            AuthorizePaymentUseCase payments,
+            Clock clock) {
+        this(orders, store, payments, clock, null);
+    }
+
+    public ProcessPaymentUseCase(
+            OrderRepository orders,
+            OrderTransitionStore store,
+            AuthorizePaymentUseCase payments,
+            Clock clock,
+            ReconcilePaymentAuthorizationUseCase reconciliation) {
+        this.orders = orders;
+        this.store = store;
+        this.payments = payments;
+        this.clock = clock;
+        this.reconciliation = reconciliation;
+    }
+
+    public Mono<PaymentOutcome> execute(ProcessPaymentCommand command) {
+        return Mono.defer(() -> orders.findById(command.orderId()))
+                .filter(order -> order.status() == OrderStatus.PENDING_CONFIRMATION)
+                .flatMap(order -> payments.execute(new PaymentRequest(order.id(), order.customerId(),
+                                order.quantity(), command.paymentToken()))
+                        .onErrorResume(
+                                AuthorizePaymentUseCase.ReconciliationRequiredException.class,
+                                error -> recover(order.id().value(), error))
+                        .flatMap(result -> settle(order, result)))
+                .switchIfEmpty(Mono.fromSupplier(() -> new PaymentOutcome.AlreadyProcessed(command.orderId())));
+    }
+
+
+    private Mono<PaymentResult> recover(
+            String orderId,
+            AuthorizePaymentUseCase.ReconciliationRequiredException original) {
+
+        if (reconciliation == null) {
+            return Mono.error(original);
+        }
+
+        return reconciliation.execute(orderId)
+                .flatMap(state -> switch (state.status()) {
+                    case APPROVED -> Mono.just(
+                            new PaymentResult.Approved(
+                                    state.authorizationId()));
+                    case DECLINED -> Mono.just(
+                            new PaymentResult.Declined(
+                                    state.declineReason()));
+                    case PENDING, NEEDS_RECONCILIATION ->
+                            Mono.error(new IllegalStateException(
+                                    "Payment outcome remains uncertain for order "
+                                            + orderId));
+                });
+    }
+
+    private Mono<PaymentOutcome> settle(Order order, PaymentResult result) {
+        Instant now = clock.instant();
+        return switch (result) {
+            case PaymentResult.Approved(var authorizationId) -> store.commit(order.markSold(now))
+                    .<PaymentOutcome>map(commit -> commit instanceof CommitResult.Committed(var transition)
+                            ? new PaymentOutcome.Sold(transition.after())
+                            : new PaymentOutcome.RefundRequired(order.id(), authorizationId));
+            case PaymentResult.Declined(var reason) -> store.commit(order.reject(RejectionReason.PAYMENT_DECLINED, Order.WORKER_ACTOR, now))
+                    .<PaymentOutcome>map(commit -> commit instanceof CommitResult.Committed(var transition)
+                            ? new PaymentOutcome.Declined(transition.after(), reason)
+                            : new PaymentOutcome.AlreadyProcessed(order.id()));
+        };
+    }
+}
+===== ORDER STATUS =====
+package co.ticketing.model.order;
+
+import co.ticketing.model.ticket.TicketStatus;
+
+import java.util.EnumSet;
+import java.util.Set;
+
+/**
+ * Lifecycle of the purchase process. {@link #allowedTargets()} is the single, explicit definition
+ * of the order workflow (Process Manager, ADR-015): every step of the saga is declared here.
+ */
+public enum OrderStatus {
+    PENDING(TicketStatus.AVAILABLE),
+    RESERVED(TicketStatus.RESERVED),
+    PENDING_CONFIRMATION(TicketStatus.PENDING_CONFIRMATION),
+    SOLD(TicketStatus.SOLD),
+    COMPLIMENTARY(TicketStatus.COMPLIMENTARY),
+    EXPIRED(TicketStatus.AVAILABLE),
+    REJECTED(TicketStatus.AVAILABLE),
+    CANCELLED(TicketStatus.AVAILABLE);
+
+    private final TicketStatus ticketStatus;
+
+    OrderStatus(TicketStatus ticketStatus) {
+        this.ticketStatus = ticketStatus;
+    }
+
+    /** Status of the tickets held by an order in this status (one of the five business states, ADR-009). */
+    public TicketStatus ticketStatus() {
+        return ticketStatus;
+    }
+
+    public Set<OrderStatus> allowedTargets() {
+        return switch (this) {
+            case PENDING -> EnumSet.of(RESERVED, REJECTED);
+            case RESERVED -> EnumSet.of(PENDING_CONFIRMATION, EXPIRED, CANCELLED);
+            case PENDING_CONFIRMATION -> EnumSet.of(SOLD, REJECTED);
+            case SOLD, COMPLIMENTARY, EXPIRED, REJECTED, CANCELLED -> EnumSet.noneOf(OrderStatus.class);
+        };
+    }
+
+    public boolean canTransitionTo(OrderStatus target) {
+        return allowedTargets().contains(target);
+    }
+
+    public boolean isFinal() {
+        return allowedTargets().isEmpty();
+    }
+}
+===== ORDER REPOSITORY =====
+package co.ticketing.model.order.gateways;
+
+import co.ticketing.model.order.Order;
+import co.ticketing.model.order.OrderId;
+import co.ticketing.model.order.OrderStatus;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+
+public interface OrderRepository {
+
+    /** Strongly consistent read. Completes empty when the order does not exist. */
+    Mono<Order> findById(OrderId orderId);
+
+    /** Non-final orders in {@code status} whose deadline is at or before {@code now}, for one index bucket. */
+    Flux<Order> findDue(OrderStatus status, int bucket, Instant now, int limit);
+
+    /** Moves the deadline of a still-PENDING order forward. Does nothing if the order already progressed. */
+    Mono<Void> postponeDeadline(OrderId orderId, Instant newDeadline);
+}
+===== ORDER TRANSITION STORE =====
+package co.ticketing.model.order.gateways;
+
+import co.ticketing.model.order.CommitResult;
+import co.ticketing.model.order.OrderTransition;
+import reactor.core.publisher.Mono;
+
+/**
+ * Applies a transition atomically: inventory movement (conditional), order (optimistic lock),
+ * tickets, audit entry and guard release. Retryable technical failures are signalled as
+ * {@link co.ticketing.model.common.exception.TransientFailureException}.
+ */
+public interface OrderTransitionStore {
+
+    Mono<CommitResult> commit(OrderTransition transition);
+}
+===== PAYMENT SIMULATOR =====
+package co.ticketing.payment;
+
+import co.ticketing.model.common.exception.TransientFailureException;
+import co.ticketing.model.payment.PaymentRequest;
+import co.ticketing.model.payment.PaymentResult;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationLookup;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationLookupGateway;
+import java.util.concurrent.ConcurrentHashMap;
+import co.ticketing.model.payment.gateways.PaymentGateway;
+import reactor.core.publisher.Mono;
+
+import java.time.Duration;
+
+/**
+ * Deterministic stand-in for a payment provider, used locally and in tests:
+ * <ul>
+ *   <li>tokens starting with {@code tok_decline} are declined;</li>
+ *   <li>tokens starting with {@code tok_unavailable} simulate a provider outage (transient failure);</li>
+ *   <li>any other token is approved.</li>
+ * </ul>
+ * The authorization id derives from the order id, mimicking a provider that is idempotent by order.
+ */
+public final class SimulatedPaymentGateway
+        implements PaymentGateway, PaymentAuthorizationLookupGateway {
+
+    public static final String DECLINE_PREFIX = "tok_decline";
+    public static final String UNAVAILABLE_PREFIX = "tok_unavailable";
+
+    private final Duration latency;
+    private final ConcurrentHashMap<String, PaymentResult> results =
+            new ConcurrentHashMap<>();
+
+    public SimulatedPaymentGateway(Duration latency) {
+        this.latency = latency;
+    }
+
+    @Override
+    public Mono<PaymentResult> authorize(PaymentRequest request) {
+        return Mono.delay(latency).then(Mono.defer(() -> decide(request)));
+    }
+
+    @Override
+    public Mono<PaymentAuthorizationLookup> findByOrderId(String orderId) {
+        return Mono.fromSupplier(() -> {
+            PaymentResult result = results.get(orderId);
+
+            if (result == null) {
+                return new PaymentAuthorizationLookup.Unknown();
+            }
+
+            return switch (result) {
+                case PaymentResult.Approved(var id) ->
+                        new PaymentAuthorizationLookup.Approved(id);
+                case PaymentResult.Declined(var reason) ->
+                        new PaymentAuthorizationLookup.Declined(reason);
+            };
+        });
+    }
+
+    private Mono<PaymentResult> decide(PaymentRequest request) {
+        return Mono.fromSupplier(() ->
+                results.computeIfAbsent(
+                        request.orderId().value(),
+                        ignored -> calculate(request)
+                ));
+    }
+
+    private static PaymentResult calculate(PaymentRequest request) {
+        String token = request.paymentToken();
+
+        if (token.startsWith(UNAVAILABLE_PREFIX)) {
+            throw new TransientFailureException(
+                    "Payment provider unavailable");
+        }
+
+        if (token.startsWith(DECLINE_PREFIX)) {
+            return new PaymentResult.Declined("CARD_DECLINED");
+        }
+
+        return new PaymentResult.Approved(
+                "auth-" + request.orderId().value());
+    }
+}
+===== AUTHORIZATION DYNAMODB =====
+package co.ticketing.dynamodb;
+
+import co.ticketing.model.payment.authorization.PaymentAuthorization;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationRepository;
+import reactor.core.publisher.Mono;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+
+public final class DynamoDbPaymentAuthorizationRepository
+        implements PaymentAuthorizationRepository {
+
+    private final DynamoDbAsyncClient dynamoDb;
+    private final String tableName;
+
+    public DynamoDbPaymentAuthorizationRepository(
+            DynamoDbAsyncClient dynamoDb, String tableName) {
+        this.dynamoDb = Objects.requireNonNull(dynamoDb);
+        if (tableName == null || tableName.isBlank()) {
+            throw new IllegalArgumentException("tableName is required");
+        }
+        this.tableName = tableName;
+    }
+
+    @Override
+    public Mono<PaymentAuthorization> findByOrderId(String orderId) {
+        var request = GetItemRequest.builder()
+                .tableName(tableName)
+                .key(Map.of("orderId", s(orderId)))
+                .consistentRead(true)
+                .build();
+
+        return Mono.fromFuture(() -> dynamoDb.getItem(request))
+                .flatMap(response -> response.hasItem()
+                        ? Mono.just(fromItem(response.item()))
+                        : Mono.empty());
+    }
+
+    @Override
+    public Mono<Boolean> createIfAbsent(
+            PaymentAuthorization authorization) {
+        Objects.requireNonNull(authorization);
+        if (authorization.version() != 0
+                || authorization.status() != PaymentAuthorization.Status.PENDING) {
+            return Mono.error(new IllegalArgumentException(
+                    "Initial authorization must be PENDING at version 0"));
+        }
+
+        var request = PutItemRequest.builder()
+                .tableName(tableName)
+                .item(toItem(authorization))
+                .conditionExpression("attribute_not_exists(orderId)")
+                .build();
+
+        return Mono.fromFuture(() -> dynamoDb.putItem(request))
+                .thenReturn(true)
+                .onErrorResume(ConditionalCheckFailedException.class,
+                        error -> Mono.just(false));
+    }
+
+    @Override
+    public Mono<Boolean> updateIfVersionMatches(
+            PaymentAuthorization authorization) {
+        Objects.requireNonNull(authorization);
+        if (authorization.version() < 1) {
+            return Mono.error(new IllegalArgumentException(
+                    "Updated authorization version must be positive"));
+        }
+
+        var status = authorization.status();
+
+        String condition = switch (status) {
+            case APPROVED, DECLINED ->
+                    "attribute_exists(orderId) AND #v = :previous "
+                    + "AND #s IN (:pending, :reconciliation)";
+            case NEEDS_RECONCILIATION ->
+                    "attribute_exists(orderId) AND #v = :previous "
+                    + "AND #s = :pending";
+            case PENDING -> throw new IllegalArgumentException(
+                    "Cannot update an authorization back to PENDING");
+        };
+
+        var request = PutItemRequest.builder()
+                .tableName(tableName)
+                .item(toItem(authorization))
+                .conditionExpression(condition)
+                .expressionAttributeNames(Map.of(
+                        "#v", "version",
+                        "#s", "status"))
+                .expressionAttributeValues(Map.of(
+                        ":previous", n(authorization.version() - 1),
+                        ":pending", s("PENDING"),
+                        ":reconciliation", s("NEEDS_RECONCILIATION")))
+                .build();
+
+        return Mono.fromFuture(() -> dynamoDb.putItem(request))
+                .thenReturn(true)
+                .onErrorResume(ConditionalCheckFailedException.class,
+                        error -> Mono.just(false));
+    }
+
+    private static Map<String, AttributeValue> toItem(
+            PaymentAuthorization a) {
+        var item = new HashMap<String, AttributeValue>();
+        item.put("orderId", s(a.orderId()));
+        item.put("status", s(a.status().name()));
+        item.put("updatedAt", s(a.updatedAt().toString()));
+        item.put("version", n(a.version()));
+
+        if (a.authorizationId() != null) {
+            item.put("authorizationId", s(a.authorizationId()));
+        }
+        if (a.declineReason() != null) {
+            item.put("declineReason", s(a.declineReason()));
+        }
+        return item;
+    }
+
+    private static PaymentAuthorization fromItem(
+            Map<String, AttributeValue> item) {
+        return new PaymentAuthorization(
+                item.get("orderId").s(),
+                PaymentAuthorization.Status.valueOf(
+                        item.get("status").s()),
+                item.containsKey("authorizationId")
+                        ? item.get("authorizationId").s() : null,
+                item.containsKey("declineReason")
+                        ? item.get("declineReason").s() : null,
+                Instant.parse(item.get("updatedAt").s()),
+                Long.parseLong(item.get("version").n()));
+    }
+
+    private static AttributeValue s(String value) {
+        return AttributeValue.fromS(value);
+    }
+
+    private static AttributeValue n(long value) {
+        return AttributeValue.fromN(Long.toString(value));
+    }
+}
+===== PAYMENT COMPENSATION =====
+package co.ticketing.usecase.payment;
+
+import co.ticketing.model.payment.compensation.PaymentCompensation;
+import co.ticketing.model.payment.compensation.PaymentCompensationRepository;
+import reactor.core.publisher.Mono;
+
+import java.time.Clock;
+import java.util.Objects;
+
+public final class RegisterPaymentCompensationUseCase {
+
+    private final PaymentCompensationRepository repository;
+    private final Clock clock;
+
+    public RegisterPaymentCompensationUseCase(
+            PaymentCompensationRepository repository,
+            Clock clock
+    ) {
+        this.repository = Objects.requireNonNull(repository);
+        this.clock = Objects.requireNonNull(clock);
+    }
+
+    public Mono<PaymentCompensation> execute(
+            String orderId,
+            String authorizationId
+    ) {
+        return Mono.defer(() -> {
+            var candidate = PaymentCompensation.pending(
+                    orderId, authorizationId, clock.instant());
+
+            return repository.createIfAbsent(candidate)
+                    .flatMap(created -> created
+                            ? Mono.just(candidate)
+                            : repository.findById(candidate.compensationId())
+                                .switchIfEmpty(Mono.error(
+                                    new IllegalStateException(
+                                        "Compensation record missing")))
+                                .flatMap(existing -> {
+                                    if (!existing.orderId().equals(orderId)
+                                            || !existing.authorizationId()
+                                                .equals(authorizationId)) {
+                                        return Mono.error(
+                                            new IllegalStateException(
+                                                "Compensation identity conflict"));
+                                    }
+                                    return Mono.just(existing);
+                                }));
+        });
+    }
+}
+===== PAYMENT LISTENER =====
+package co.ticketing.sqs.listener;
+
+import co.ticketing.messaging.CommandMessageCodec;
+import co.ticketing.model.order.OrderCommand;
+import co.ticketing.model.order.ProcessPaymentCommand;
+import co.ticketing.usecase.order.PaymentOutcome;
+import co.ticketing.usecase.order.ProcessPaymentUseCase;
+import co.ticketing.usecase.payment.RegisterPaymentCompensationUseCase;
+import io.micrometer.core.instrument.MeterRegistry;
+import reactor.core.publisher.Mono;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
+
+/** Asynchronous adapter for the payment step. */
+public final class PaymentRequestListener extends AbstractSqsListener {
+
+    private final ProcessPaymentUseCase processPayment;
+    private final RegisterPaymentCompensationUseCase registerCompensation;
+
+    public PaymentRequestListener(SqsAsyncClient sqs, String queueUrl, ListenerSettings settings, CommandMessageCodec codec,
+                                  MeterRegistry meters, ProcessPaymentUseCase processPayment,
+                                  RegisterPaymentCompensationUseCase registerCompensation) {
+        super(sqs, "payment-requests", queueUrl, settings, codec, meters);
+        this.processPayment = processPayment;
+        this.registerCompensation = java.util.Objects.requireNonNull(registerCompensation);
+    }
+
+    @Override
+    protected Mono<String> handle(OrderCommand command) {
+        if (!(command instanceof ProcessPaymentCommand payment)) {
+            return Mono.error(new IllegalArgumentException("Unexpected command on payment queue: " + command));
+        }
+        return processPayment.execute(payment)
+                .flatMap(outcome -> {
+                    if (outcome instanceof PaymentOutcome.RefundRequired refund) {
+                        return registerCompensation.execute(
+                                        refund.orderId().value(),
+                                        refund.authorizationId()
+                                )
+                                .thenReturn(label(outcome));
+                    }
+                    return Mono.just(label(outcome));
+                });
+    }
+
+    String label(PaymentOutcome outcome) {
+        return switch (outcome) {
+            case PaymentOutcome.Sold _ -> "sold";
+            case PaymentOutcome.Declined _ -> "declined";
+            case PaymentOutcome.RefundRequired(var orderId, var authorizationId) -> {
+                // Alert-worthy: the customer was charged for an order that had already been released.
+                log.error("REFUND REQUIRED for order {} (authorization {})", orderId.value(), authorizationId);
+                yield "refund_required";
+            }
+            case PaymentOutcome.AlreadyProcessed _ -> "duplicate";
+        };
+    }
+}
+===== CONFIGURACION DOCKER =====
+localstack
+dynamodb-local
+aws-init
+ticketing-api
+ticketing-worker
+===== GIT STATUS =====
+ M applications/app-service/pom.xml
+ M applications/app-service/src/main/java/co/ticketing/config/AdaptersConfig.java
+ M applications/app-service/src/main/java/co/ticketing/config/TicketingProperties.java
+ M applications/app-service/src/main/java/co/ticketing/config/UseCasesConfig.java
+ M applications/app-service/src/main/java/co/ticketing/config/WorkerConfig.java
+ M applications/app-service/src/main/resources/application.yml
+AM applications/app-service/src/test/java/co/ticketing/config/WorkerConfigTest.java
+ M deployment/local/init-aws.sh
+ M domain/usecase/src/main/java/co/ticketing/usecase/order/ProcessPaymentUseCase.java
+ M domain/usecase/src/test/java/co/ticketing/usecase/order/ProcessPaymentUseCaseTest.java
+ M infrastructure/driven-adapters/payment-simulator/src/main/java/co/ticketing/payment/SimulatedPaymentGateway.java
+ M infrastructure/driven-adapters/payment-simulator/src/test/java/co/ticketing/payment/SimulatedPaymentGatewayTest.java
+ M infrastructure/entry-points/sqs-listener/src/main/java/co/ticketing/sqs/listener/PaymentRequestListener.java
+ M infrastructure/entry-points/sqs-listener/src/test/java/co/ticketing/sqs/listener/SqsListenersTest.java
+ M postman/reactive-ticketing.postman_collection.json
+?? applications/app-service/src/test/java/co/ticketing/config/PaymentAuthorizationWiringTest.java
+?? domain/model/src/main/java/co/ticketing/model/payment/authorization/
+?? domain/model/src/main/java/co/ticketing/model/payment/compensation/
+?? domain/model/src/main/java/co/ticketing/model/payment/refund/
+?? domain/model/src/test/java/co/ticketing/model/payment/
+?? domain/usecase/src/main/java/co/ticketing/usecase/payment/
+?? domain/usecase/src/test/java/co/ticketing/usecase/order/DurablePaymentRedeliveryTest.java
+?? domain/usecase/src/test/java/co/ticketing/usecase/payment/
+?? infrastructure/driven-adapters/dynamodb-repository/src/main/java/co/ticketing/dynamodb/DynamoDbPaymentAuthorizationRepository.java
+?? infrastructure/driven-adapters/dynamodb-repository/src/main/java/co/ticketing/dynamodb/DynamoDbPaymentCompensationRepository.java
+?? infrastructure/driven-adapters/dynamodb-repository/src/test/java/co/ticketing/dynamodb/DynamoDbPaymentAuthorizationRepositoryTest.java
+?? infrastructure/driven-adapters/dynamodb-repository/src/test/java/co/ticketing/dynamodb/DynamoDbPaymentCompensationRepositoryTest.java
+?? infrastructure/driven-adapters/payment-simulator/src/main/java/co/ticketing/payment/SimulatedPaymentRefundGateway.java
+?? infrastructure/driven-adapters/payment-simulator/src/test/java/co/ticketing/payment/SimulatedPaymentRefundGatewayTest.java
+?? postman/reactive-ticketing.postman_collection.json.bak
+?? tests/

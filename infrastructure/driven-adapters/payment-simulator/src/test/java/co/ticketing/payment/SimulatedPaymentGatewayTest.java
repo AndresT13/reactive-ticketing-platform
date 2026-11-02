@@ -6,6 +6,7 @@ import co.ticketing.model.order.OrderId;
 import co.ticketing.model.order.Quantity;
 import co.ticketing.model.payment.PaymentRequest;
 import co.ticketing.model.payment.PaymentResult;
+import co.ticketing.model.payment.authorization.PaymentAuthorizationLookup;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
 
@@ -38,4 +39,36 @@ class SimulatedPaymentGatewayTest {
         StepVerifier.create(gateway.authorize(request("tok_unavailable")))
                 .verifyError(TransientFailureException.class);
     }
+
+    @Test
+    void lookupReturnsUnknownBeforeAuthorization() {
+        StepVerifier.create(gateway.findByOrderId("not-authorized"))
+                .expectNext(new PaymentAuthorizationLookup.Unknown())
+                .verifyComplete();
+    }
+
+    @Test
+    void lookupReturnsRealApprovedResult() {
+        StepVerifier.create(gateway.authorize(request("tok_visa")))
+                .expectNext(new PaymentResult.Approved("auth-o-1"))
+                .verifyComplete();
+
+        StepVerifier.create(gateway.findByOrderId("o-1"))
+                .expectNext(
+                        new PaymentAuthorizationLookup.Approved("auth-o-1"))
+                .verifyComplete();
+    }
+
+    @Test
+    void repeatedAuthorizationUsesStoredResult() {
+        StepVerifier.create(gateway.authorize(request("tok_visa")))
+                .expectNext(new PaymentResult.Approved("auth-o-1"))
+                .verifyComplete();
+
+        StepVerifier.create(
+                gateway.authorize(request("tok_decline_other")))
+                .expectNext(new PaymentResult.Approved("auth-o-1"))
+                .verifyComplete();
+    }
+
 }

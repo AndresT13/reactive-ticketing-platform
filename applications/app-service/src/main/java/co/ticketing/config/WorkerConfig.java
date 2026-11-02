@@ -8,6 +8,7 @@ import co.ticketing.sqs.listener.ReservationRequestListener;
 import co.ticketing.usecase.housekeeping.ReleaseExpiredReservationsUseCase;
 import co.ticketing.usecase.housekeeping.RepublishStalledOrdersUseCase;
 import co.ticketing.usecase.order.ProcessPaymentUseCase;
+import co.ticketing.usecase.payment.RegisterPaymentCompensationUseCase;
 import co.ticketing.usecase.order.ReserveTicketsUseCase;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,8 +38,10 @@ public class WorkerConfig {
     @Bean
     PaymentRequestListener paymentRequestListener(SqsAsyncClient sqs, TicketingProperties properties,
                                                   ListenerSettings settings, CommandMessageCodec codec,
-                                                  MeterRegistry meters, ProcessPaymentUseCase processPayment) {
-        return new PaymentRequestListener(sqs, properties.queues().paymentRequestsUrl(), settings, codec, meters, processPayment);
+                                                  MeterRegistry meters, ProcessPaymentUseCase processPayment,
+                                                   RegisterPaymentCompensationUseCase registerCompensation) {
+        return new PaymentRequestListener(sqs, properties.queues().paymentRequestsUrl(),
+                settings, codec, meters, processPayment, registerCompensation);
     }
 
     @Bean

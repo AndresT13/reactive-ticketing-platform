@@ -13,6 +13,8 @@ import co.ticketing.model.order.RejectionReason;
 import co.ticketing.model.order.ReserveTicketsCommand;
 import co.ticketing.usecase.order.PaymentOutcome;
 import co.ticketing.usecase.order.ProcessPaymentUseCase;
+import co.ticketing.usecase.payment.RegisterPaymentCompensationUseCase;
+import co.ticketing.model.payment.compensation.PaymentCompensation;
 import co.ticketing.usecase.order.ReservationOutcome;
 import co.ticketing.usecase.order.ReserveTicketsUseCase;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -52,6 +54,8 @@ class SqsListenersTest {
     private final SqsAsyncClient sqs = mock(SqsAsyncClient.class);
     private final ReserveTicketsUseCase reserveTickets = mock(ReserveTicketsUseCase.class);
     private final ProcessPaymentUseCase processPayment = mock(ProcessPaymentUseCase.class);
+    private final RegisterPaymentCompensationUseCase registerCompensation =
+            mock(RegisterPaymentCompensationUseCase.class);
     private final CommandMessageCodec codec = new CommandMessageCodec();
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private ReservationRequestListener reservations;
@@ -60,7 +64,7 @@ class SqsListenersTest {
     @BeforeEach
     void setUp() {
         reservations = new ReservationRequestListener(sqs, "http://sqs/reservations", SETTINGS, codec, meters, reserveTickets);
-        payments = new PaymentRequestListener(sqs, "http://sqs/payments", SETTINGS, codec, meters, processPayment);
+        payments = new PaymentRequestListener(sqs, "http://sqs/payments", SETTINGS, codec, meters, processPayment, registerCompensation);
         when(sqs.deleteMessage(any(DeleteMessageRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(DeleteMessageResponse.builder().build()));
     }
@@ -170,4 +174,85 @@ class SqsListenersTest {
         assertThatThrownBy(() -> new ListenerSettings(10, 20, 0, Duration.ofSeconds(1), Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void refundRequiredIsAcknowledgedAfterPersistence() {
+        when(processPayment.execute(any()))
+                .thenReturn(Mono.just(
+                        new PaymentOutcome.RefundRequired(ORDER_ID, "auth-1")));
+
+        when(registerCompensation.execute("ord-1", "auth-1"))
+                .thenReturn(Mono.just(
+                        PaymentCompensation.pending("ord-1", "auth-1", AT)));
+
+        StepVerifier.create(payments.process(
+                message(codec.encode(
+                        new ProcessPaymentCommand(ORDER_ID, "tok", AT)))))
+                .expectNext("refund_required")
+                .verifyComplete();
+
+        verify(registerCompensation).execute("ord-1", "auth-1");
+        verify(sqs).deleteMessage(any(DeleteMessageRequest.class));
+    }
+
+    @Test
+    void refundPersistenceFailurePreventsAcknowledgement() {
+        when(processPayment.execute(any()))
+                .thenReturn(Mono.just(
+                        new PaymentOutcome.RefundRequired(ORDER_ID, "auth-1")));
+
+        when(registerCompensation.execute("ord-1", "auth-1"))
+                .thenReturn(Mono.error(
+                        new IllegalStateException("DynamoDB unavailable")));
+
+        StepVerifier.create(payments.process(
+                message(codec.encode(
+                        new ProcessPaymentCommand(ORDER_ID, "tok", AT)))))
+                .verifyComplete();
+
+        verify(registerCompensation).execute("ord-1", "auth-1");
+        verify(sqs, never()).deleteMessage(any(DeleteMessageRequest.class));
+    }
+
+
+    @Test
+    void uncertainPaymentMustNotBeAcknowledged() {
+        when(processPayment.execute(any()))
+                .thenReturn(Mono.error(
+                        new IllegalStateException(
+                                "Payment outcome remains uncertain")));
+
+        StepVerifier.create(payments.process(
+                message(codec.encode(
+                        new ProcessPaymentCommand(
+                                ORDER_ID, "tok_visa", AT)))))
+                .verifyComplete();
+
+        verify(sqs, never())
+                .deleteMessage(any(DeleteMessageRequest.class));
+
+        verify(registerCompensation, never())
+                .execute(any(), any());
+    }
+
+    @Test
+    void paymentInfrastructureFailureMustNotBeAcknowledged() {
+        when(processPayment.execute(any()))
+                .thenReturn(Mono.error(
+                        new TransientFailureException(
+                                "Authorization repository unavailable")));
+
+        StepVerifier.create(payments.process(
+                message(codec.encode(
+                        new ProcessPaymentCommand(
+                                ORDER_ID, "tok_visa", AT)))))
+                .verifyComplete();
+
+        verify(sqs, never())
+                .deleteMessage(any(DeleteMessageRequest.class));
+
+        verify(registerCompensation, never())
+                .execute(any(), any());
+    }
+
 }

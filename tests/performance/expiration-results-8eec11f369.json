@@ -1,0 +1,31 @@
+{
+  "eventId": "7873acdb-c943-45a7-b752-54e20e1ef08f",
+  "orderId": "71765522-947e-490c-9345-f17b5b072ef7",
+  "before": {
+    "status": "RESERVED",
+    "inventory": {
+      "eventId": "7873acdb-c943-45a7-b752-54e20e1ef08f",
+      "totalCapacity": 1,
+      "available": 0,
+      "held": 1,
+      "reserved": 1,
+      "pendingConfirmation": 0,
+      "sold": 0,
+      "complimentary": 0
+    }
+  },
+  "after": {
+    "status": "EXPIRED",
+    "inventory": {
+      "eventId": "7873acdb-c943-45a7-b752-54e20e1ef08f",
+      "totalCapacity": 1,
+      "available": 1,
+      "held": 0,
+      "reserved": 0,
+      "pendingConfirmation": 0,
+      "sold": 0,
+      "complimentary": 0
+    }
+  },
+  "passed": true
+}

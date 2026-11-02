@@ -1,0 +1,86 @@
+{
+  "prefix": "4aeb0afff0",
+  "eventId": "bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+  "orderId": "defde6da-a724-4bfa-a60e-fd0edf60b4de",
+  "buyer": "recovery-buyer-4aeb0afff0",
+  "admin": "recovery-admin-4aeb0afff0",
+  "createdAtUnix": 1793582730.137164,
+  "before": {
+    "order": {
+      "orderId": "defde6da-a724-4bfa-a60e-fd0edf60b4de",
+      "eventId": "bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+      "quantity": 1,
+      "status": "PENDING",
+      "ticketStatus": "AVAILABLE",
+      "ticketIds": [],
+      "expiresAt": null,
+      "failureReason": null,
+      "createdAt": "2026-11-02T01:25:28.097Z",
+      "updatedAt": "2026-11-02T01:25:28.097Z",
+      "_links": {
+        "self": {
+          "href": "/api/v1/orders/defde6da-a724-4bfa-a60e-fd0edf60b4de",
+          "method": "GET"
+        },
+        "event": {
+          "href": "/api/v1/events/bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+          "method": "GET"
+        }
+      }
+    },
+    "inventory": {
+      "eventId": "bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+      "totalCapacity": 1,
+      "available": 1,
+      "held": 0,
+      "reserved": 0,
+      "pendingConfirmation": 0,
+      "sold": 0,
+      "complimentary": 0
+    }
+  },
+  "after": {
+    "order": {
+      "orderId": "defde6da-a724-4bfa-a60e-fd0edf60b4de",
+      "eventId": "bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+      "quantity": 1,
+      "status": "RESERVED",
+      "ticketStatus": "RESERVED",
+      "ticketIds": [
+        "5cdddea8-13e4-47e9-9931-bfb55b335219"
+      ],
+      "expiresAt": "2026-11-02T01:36:59.933Z",
+      "failureReason": null,
+      "createdAt": "2026-11-02T01:25:28.097Z",
+      "updatedAt": "2026-11-02T01:26:59.933Z",
+      "_links": {
+        "self": {
+          "href": "/api/v1/orders/defde6da-a724-4bfa-a60e-fd0edf60b4de",
+          "method": "GET"
+        },
+        "confirm": {
+          "href": "/api/v1/orders/defde6da-a724-4bfa-a60e-fd0edf60b4de/confirm",
+          "method": "POST"
+        },
+        "cancel": {
+          "href": "/api/v1/orders/defde6da-a724-4bfa-a60e-fd0edf60b4de/cancel",
+          "method": "POST"
+        },
+        "event": {
+          "href": "/api/v1/events/bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+          "method": "GET"
+        }
+      }
+    },
+    "inventory": {
+      "eventId": "bfc8a17a-feed-4a8c-95ec-f9a50e9afaa7",
+      "totalCapacity": 1,
+      "available": 0,
+      "held": 1,
+      "reserved": 1,
+      "pendingConfirmation": 0,
+      "sold": 0,
+      "complimentary": 0
+    }
+  }
+}

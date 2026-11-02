@@ -79,3 +79,10 @@ terraform.tfvars
 coverage/
 jacoco.exec
 *.exec
+
+# Local data and operational backups
+tests/backups/
+*.bak
+.env
+.env.*
+!.env.example
