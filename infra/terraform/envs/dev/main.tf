@@ -7,7 +7,7 @@ module "observability" {
   source             = "../../modules/observability"
   name               = local.name
   region             = var.region
-  log_retention_days = 30
+  log_retention_days = 365
   alarm_emails       = var.alarm_emails
 }
 
@@ -17,7 +17,7 @@ module "network" {
   region             = var.region
   az_count           = 2
   kms_key_arn        = module.observability.kms_key_arn
-  log_retention_days = 30
+  log_retention_days = 365
 }
 
 module "data" {

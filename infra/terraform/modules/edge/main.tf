@@ -204,16 +204,18 @@ resource "aws_apigatewayv2_route" "protected" {
 }
 
 resource "aws_apigatewayv2_route" "public_availability" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "GET /api/v1/events/{eventId}/availability"
-  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
+  authorization_type = "NONE"
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /api/v1/events/{eventId}/availability"
+  target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 
 # SSE is reachable but capped by the 29 s integration timeout; EventSource reconnects automatically (README, limitations).
 resource "aws_apigatewayv2_route" "public_availability_stream" {
-  api_id    = aws_apigatewayv2_api.this.id
-  route_key = "GET /api/v1/events/{eventId}/availability/stream"
-  target    = "integrations/${aws_apigatewayv2_integration.alb.id}"
+  authorization_type = "NONE"
+  api_id             = aws_apigatewayv2_api.this.id
+  route_key          = "GET /api/v1/events/{eventId}/availability/stream"
+  target             = "integrations/${aws_apigatewayv2_integration.alb.id}"
 }
 
 resource "aws_cloudwatch_log_group" "access" {

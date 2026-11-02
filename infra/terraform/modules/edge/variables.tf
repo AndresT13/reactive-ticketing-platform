@@ -51,3 +51,15 @@ variable "deletion_protection" {
   type    = bool
   default = true
 }
+
+variable "alb_tls_certificate_arn" {
+  description = "ARN del certificado ACM para el ALB interno."
+  type        = string
+  default     = null
+}
+
+variable "alb_tls_server_name" {
+  description = "Nombre DNS utilizado para verificar el certificado TLS."
+  type        = string
+  default     = null
+}
