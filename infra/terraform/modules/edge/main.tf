@@ -323,7 +323,7 @@ resource "aws_s3_bucket_policy" "alb_access_logs" {
         Effect    = "Deny"
         Principal = "*"
         Action    = "s3:*"
-        Resource  = [
+        Resource = [
           aws_s3_bucket.alb_access_logs.arn,
           "${aws_s3_bucket.alb_access_logs.arn}/*"
         ]
