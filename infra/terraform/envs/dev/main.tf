@@ -52,6 +52,7 @@ module "edge" {
   jwt_issuer_uri      = module.identity.issuer_uri
   jwt_audiences       = module.identity.client_ids
   kms_key_arn         = module.observability.kms_key_arn
+  log_retention_days  = 365
   deletion_protection = false
 }
 
