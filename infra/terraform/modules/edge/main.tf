@@ -46,6 +46,15 @@ resource "aws_lb" "this" {
   drop_invalid_header_fields = true
   idle_timeout               = 60
   enable_deletion_protection = var.deletion_protection
+
+  # ALB access logs are stored in a dedicated, private SSE-S3 bucket.
+  access_logs {
+    bucket  = aws_s3_bucket.alb_access_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.alb_access_logs]
 }
 
 resource "aws_lb_target_group" "api" {
@@ -260,4 +269,68 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
       name = "authorization"
     }
   }
+}
+
+# ---------- ALB access logging ----------
+# The ALB log delivery service only supports SSE-S3 for this destination.
+data "aws_caller_identity" "alb_logs" {}
+
+data "aws_region" "alb_logs" {}
+
+resource "aws_s3_bucket" "alb_access_logs" {
+  bucket        = "${var.name}-alb-logs-${data.aws_caller_identity.alb_logs.account_id}"
+  force_destroy = false
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_access_logs" {
+  bucket                  = aws_s3_bucket.alb_access_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowALBLogDelivery"
+        Effect    = "Allow"
+        Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.alb_access_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.alb_logs.account_id}/*"
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = "arn:aws:elasticloadbalancing:${data.aws_region.alb_logs.name}:${data.aws_caller_identity.alb_logs.account_id}:loadbalancer/*"
+          }
+        }
+      },
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [
+          aws_s3_bucket.alb_access_logs.arn,
+          "${aws_s3_bucket.alb_access_logs.arn}/*"
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
 }
