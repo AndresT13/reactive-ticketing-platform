@@ -28,7 +28,7 @@ variable "az_count" {
 variable "log_retention_days" {
   description = "Retention of the VPC flow logs."
   type        = number
-  default     = 30
+  default     = 365
 }
 
 variable "kms_key_arn" {
