@@ -421,7 +421,7 @@ resource "aws_s3_bucket_policy" "alb_access_logs" {
         Resource  = "${aws_s3_bucket.alb_access_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.alb_logs.account_id}/*"
         Condition = {
           ArnLike = {
-            "aws:SourceArn" = "arn:aws:elasticloadbalancing:${data.aws_region.alb_logs.name}:${data.aws_caller_identity.alb_logs.account_id}:loadbalancer/*"
+            "aws:SourceArn" = "arn:aws:elasticloadbalancing:${data.aws_region.alb_logs.region}:${data.aws_caller_identity.alb_logs.account_id}:loadbalancer/*"
           }
         }
       },
