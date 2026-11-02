@@ -376,6 +376,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "alb_access_logs" {
   depends_on = [aws_s3_bucket_versioning.alb_access_logs]
 }
 
+# Disable ACL-based grants; the log delivery service uses the bucket policy.
+resource "aws_s3_bucket_ownership_controls" "alb_access_logs" {
+  bucket = aws_s3_bucket.alb_access_logs.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "alb_access_logs" {
   bucket                  = aws_s3_bucket.alb_access_logs.id
   block_public_acls       = true
