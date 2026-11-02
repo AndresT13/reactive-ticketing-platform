@@ -80,7 +80,10 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.4"
-      - run: terraform fmt -recursive -check
+      - name: Check Terraform formatting (show diff on failure)
+        run: |
+          terraform fmt -recursive
+          git diff --exit-code -- infra/terraform
       - name: terraform validate (no backend, no credentials)
         working-directory: infra/terraform/envs/dev
         run: |
@@ -88,6 +91,8 @@ jobs:
           terraform validate
       - uses: terraform-linters/setup-tflint@v4
       - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tflint --init
           tflint --recursive --config "$(pwd)/.tflint.hcl"
